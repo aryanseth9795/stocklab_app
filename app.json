@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "App",
-    "slug": "App",
+    "name": "StockLabs",
+    "slug": "StockLabs",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -17,14 +17,32 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.aryanseth97.StockLabs"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "08f5bc73-2342-4a2d-8d70-7cd705b597a9"
+      }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/08f5bc73-2342-4a2d-8d70-7cd705b597a9",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "owner": "aryanseth97",
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ]
   }
 }
