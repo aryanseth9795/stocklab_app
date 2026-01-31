@@ -49,7 +49,7 @@ export default function MainTabNavigator() {
           borderTopWidth: 1,
           paddingTop: 8,
           paddingBottom: Math.max(insets.bottom, 8),
-          height: 60 + Math.max(insets.bottom, 8),
+          height: 60 + Math.max(insets.bottom, 10),
         },
         tabBarActiveTintColor: colors.textPrimary,
         tabBarInactiveTintColor: colors.textMuted,

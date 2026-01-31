@@ -1,4 +1,5 @@
 import { NavigatorScreenParams } from "@react-navigation/native";
+import { Stock } from "../types";
 
 // Main Tab Navigator
 export type MainTabParamList = {
@@ -8,11 +9,14 @@ export type MainTabParamList = {
   Account: undefined;
 };
 
-// Root Stack (main tabs + auth modals)
+// Root Stack (main tabs + auth modals + detail screens)
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   Login: undefined;
   Signup: undefined;
+  StockDetail: { stock: Stock };
+  EditProfile: undefined;
+  Dashboard: undefined;
 };
 
 // For useNavigation typing

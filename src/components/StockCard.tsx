@@ -1,5 +1,14 @@
-import React, { memo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import React, { memo, useEffect } from "react";
+import { View, Text, StyleSheet, Pressable } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withSequence,
+  withTiming,
+  interpolateColor,
+  FadeInDown,
+} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, borderRadius, spacing, shadows, typography } from "../theme";
 import { Stock } from "../types";
@@ -7,87 +16,134 @@ import { Stock } from "../types";
 interface StockCardProps {
   stock: Stock;
   onPress?: () => void;
+  index?: number;
 }
 
-function StockCard({ stock, onPress }: StockCardProps) {
+function StockCard({ stock, onPress, index = 0 }: StockCardProps) {
   const isUp = stock.stockChange >= 0;
-  const gradientColors = isUp
-    ? colors.gradients.success
-    : colors.gradients.danger;
+  const scale = useSharedValue(1);
+  const flash = useSharedValue(0);
+  const prevPrice = React.useRef(stock.stockPrice);
+
+  // Price change flash animation
+  useEffect(() => {
+    if (prevPrice.current !== stock.stockPrice) {
+      prevPrice.current = stock.stockPrice;
+      flash.value = withSequence(
+        withTiming(1, { duration: 100 }),
+        withTiming(0, { duration: 300 }),
+      );
+    }
+  }, [stock.stockPrice, flash]);
+
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const flashStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      flash.value,
+      [0, 1],
+      [
+        "transparent",
+        isUp ? "rgba(52,211,153,0.15)" : "rgba(251,113,133,0.15)",
+      ],
+    ),
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.97, { damping: 15, stiffness: 150 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 150 });
+  };
+
+  // Staggered entrance animation
+  const enteringAnimation = FadeInDown.delay(Math.min(index * 50, 300))
+    .duration(400)
+    .springify();
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.9}
+    <Pressable
       onPress={onPress}
-      style={styles.container}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
     >
-      <LinearGradient
-        colors={colors.gradients.card}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.card}
+      <Animated.View
+        entering={enteringAnimation}
+        style={[styles.container, scaleStyle]}
       >
-        {/* Top Glow/Border Accent */}
-        <View
-          style={[
-            styles.accentBorder,
-            { backgroundColor: isUp ? colors.emerald : colors.rose },
-          ]}
-        />
+        <LinearGradient
+          colors={colors.gradients.card}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.card}
+        >
+          <Animated.View style={[StyleSheet.absoluteFill, flashStyle]} />
 
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.symbol}>{stock.stocksymbol}</Text>
-            <Text style={styles.name}>{stock.stockName}</Text>
-          </View>
-
+          {/* Top Glow/Border Accent */}
           <View
-            style={[styles.badge, isUp ? styles.badgeUp : styles.badgeDown]}
-          >
-            <Text
-              style={[
-                styles.badgeText,
-                { color: isUp ? colors.emerald : colors.rose },
-              ]}
-            >
-              {isUp ? "▲" : "▼"}{" "}
-              {Math.abs(stock.stockChangePercentage).toFixed(2)}%
-            </Text>
-          </View>
-        </View>
+            style={[
+              styles.accentBorder,
+              { backgroundColor: isUp ? colors.emerald : colors.rose },
+            ]}
+          />
 
-        {/* Price & Change */}
-        <View style={styles.priceRow}>
-          <View>
-            <Text style={styles.price}>${stock.stockPrice.toFixed(2)}</Text>
-            <Text style={styles.label}>Current Price</Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.symbol}>{stock.stocksymbol}</Text>
+              <Text style={styles.name}>{stock.stockName}</Text>
+            </View>
+
+            <View
+              style={[styles.badge, isUp ? styles.badgeUp : styles.badgeDown]}
+            >
+              <Text
+                style={[
+                  styles.badgeText,
+                  { color: isUp ? colors.emerald : colors.rose },
+                ]}
+              >
+                {isUp ? "▲" : "▼"}{" "}
+                {Math.abs(stock.stockChangePercentage).toFixed(2)}%
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.changeContainer}>
-            <Text
-              style={[
-                styles.changeValue,
-                { color: isUp ? colors.emerald : colors.rose },
-              ]}
-            >
-              {isUp ? "+" : ""}
-              {stock.stockChange.toFixed(2)}
-            </Text>
-            <Text style={styles.label}>Change (USD)</Text>
+          {/* Price & Change */}
+          <View style={styles.priceRow}>
+            <View>
+              <Text style={styles.price}>${stock.stockPrice.toFixed(2)}</Text>
+              <Text style={styles.label}>Current Price</Text>
+            </View>
+
+            <View style={styles.changeContainer}>
+              <Text
+                style={[
+                  styles.changeValue,
+                  { color: isUp ? colors.emerald : colors.rose },
+                ]}
+              >
+                {isUp ? "+" : ""}
+                {stock.stockChange.toFixed(2)}
+              </Text>
+              <Text style={styles.label}>Change (USD)</Text>
+            </View>
           </View>
-        </View>
-      </LinearGradient>
-    </TouchableOpacity>
+        </LinearGradient>
+      </Animated.View>
+    </Pressable>
   );
 }
 
-// Memoize to prevent re-renders when stock data hasn't changed
 export default memo(StockCard, (prevProps, nextProps) => {
   return (
     prevProps.stock.stocksymbol === nextProps.stock.stocksymbol &&
     prevProps.stock.stockPrice === nextProps.stock.stockPrice &&
-    prevProps.stock.stockChange === nextProps.stock.stockChange
+    prevProps.stock.stockChange === nextProps.stock.stockChange &&
+    prevProps.index === nextProps.index
   );
 });
 

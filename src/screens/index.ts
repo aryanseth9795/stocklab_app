@@ -4,3 +4,6 @@ export { default as HistoryScreen } from "./HistoryScreen";
 export { default as AccountScreen } from "./AccountScreen";
 export { default as LoginScreen } from "./LoginScreen";
 export { default as SignupScreen } from "./SignupScreen";
+export { default as StockDetailScreen } from "./StockDetailScreen";
+export { default as EditProfileScreen } from "./EditProfileScreen";
+export { default as DashboardScreen } from "./DashboardScreen";

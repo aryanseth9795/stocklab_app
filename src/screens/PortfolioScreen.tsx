@@ -378,10 +378,12 @@ export default function PortfolioScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // flex: 1 causes gap between screen and tabs
     backgroundColor: colors.background,
+    height:"100%"
   },
   scrollContent: {
+    flexGrow: 1, // Fill screen when content is minimal
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
   },

@@ -7,6 +7,9 @@ import { colors } from "../theme";
 import MainTabNavigator from "./MainTabNavigator";
 import LoginScreen from "../screens/LoginScreen";
 import SignupScreen from "../screens/SignupScreen";
+import StockDetailScreen from "../screens/StockDetailScreen";
+import EditProfileScreen from "../screens/EditProfileScreen";
+import DashboardScreen from "../screens/DashboardScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -27,6 +30,30 @@ export default function RootNavigator() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainTabNavigator} />
+        <Stack.Screen
+          name="StockDetail"
+          component={StockDetailScreen}
+          options={{
+            presentation: "card",
+            animation: "slide_from_right",
+          }}
+        />
+        <Stack.Screen
+          name="EditProfile"
+          component={EditProfileScreen}
+          options={{
+            presentation: "card",
+            animation: "slide_from_right",
+          }}
+        />
+        <Stack.Screen
+          name="Dashboard"
+          component={DashboardScreen}
+          options={{
+            presentation: "card",
+            animation: "slide_from_right",
+          }}
+        />
         <Stack.Group screenOptions={{ presentation: "modal" }}>
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Signup" component={SignupScreen} />

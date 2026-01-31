@@ -1,11 +1,10 @@
 import React from "react";
-import {
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  View,
-} from "react-native";
+import { Text, StyleSheet, ActivityIndicator, Pressable } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, borderRadius, spacing, shadows } from "../../theme";
 
@@ -37,9 +36,21 @@ export default function Button({
   onPress,
   ...props
 }: ButtonProps) {
+  const scale = useSharedValue(1);
   const isGradient = variant === "gradient" || variant === "primary";
 
-  // Base container styles
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.96, { damping: 15, stiffness: 150 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 150 });
+  };
+
   const containerStyles = [
     styles.base,
     styles[`size_${size}`],
@@ -75,40 +86,45 @@ export default function Button({
 
   if (isGradient) {
     return (
-      <TouchableOpacity
-        activeOpacity={0.8}
+      <Pressable
         onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
         disabled={disabled || loading}
         style={[fullWidth && styles.fullWidth, style]}
         {...props}
       >
-        <LinearGradient
-          colors={colors.gradients.primary}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[
-            styles.base,
-            styles[`size_${size}`],
-            styles.gradientBase,
-            disabled && styles.disabled,
-          ]}
-        >
-          {renderContent()}
-        </LinearGradient>
-      </TouchableOpacity>
+        <Animated.View style={scaleStyle}>
+          <LinearGradient
+            colors={colors.gradients.primary}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[
+              styles.base,
+              styles[`size_${size}`],
+              styles.gradientBase,
+              disabled && styles.disabled,
+            ]}
+          >
+            {renderContent()}
+          </LinearGradient>
+        </Animated.View>
+      </Pressable>
     );
   }
 
   return (
-    <TouchableOpacity
-      style={containerStyles}
+    <Pressable
       onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       disabled={disabled || loading}
-      activeOpacity={0.7}
       {...props}
     >
-      {renderContent()}
-    </TouchableOpacity>
+      <Animated.View style={[containerStyles, scaleStyle]}>
+        {renderContent()}
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -129,8 +145,6 @@ const styles: any = StyleSheet.create({
   disabled: {
     opacity: 0.5,
   },
-
-  // Variants (Non-gradient)
   secondary: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -145,8 +159,6 @@ const styles: any = StyleSheet.create({
   danger: {
     backgroundColor: colors.error,
   },
-
-  // Sizes
   size_sm: {
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
@@ -162,8 +174,6 @@ const styles: any = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     height: 56,
   },
-
-  // Text Styles
   text: {
     fontWeight: "600",
     letterSpacing: 0.5,
@@ -174,12 +184,9 @@ const styles: any = StyleSheet.create({
   text_ghost: { color: colors.primary },
   text_success: { color: "#FFF" },
   text_danger: { color: "#FFF" },
-
   textDisabled: {
     color: colors.textDisabled,
   },
-
-  // Text Sizes
   textSize_sm: { fontSize: 13 },
   textSize_md: { fontSize: 16 },
   textSize_lg: { fontSize: 18 },

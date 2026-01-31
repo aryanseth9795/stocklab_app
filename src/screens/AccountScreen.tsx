@@ -8,12 +8,14 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import { Card, Button, AuthGuard } from "../components";
 
 export default function AccountScreen() {
+  const navigation = useNavigation<any>();
   const { user, isAuthed, logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -97,7 +99,10 @@ export default function AccountScreen() {
 
           {/* Menu Items */}
           <Card style={styles.menuCard}>
-            <TouchableOpacity style={styles.menuItem}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => navigation.navigate("EditProfile")}
+            >
               <View style={styles.menuLeft}>
                 <Ionicons
                   name="person-outline"
@@ -105,6 +110,27 @@ export default function AccountScreen() {
                   color={colors.textSecondary}
                 />
                 <Text style={styles.menuText}>Edit Profile</Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={colors.textMuted}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.menuDivider} />
+
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => navigation.navigate("Dashboard")}
+            >
+              <View style={styles.menuLeft}>
+                <Ionicons
+                  name="stats-chart-outline"
+                  size={20}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.menuText}>Dashboard</Text>
               </View>
               <Ionicons
                 name="chevron-forward"
@@ -194,10 +220,11 @@ const joinedDate = (createdAt: string | undefined) =>
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // flex: 1 causes gap between screen and tabs
     backgroundColor: colors.background,
   },
   scrollContent: {
+    flexGrow: 1, // Fill screen when content is minimal
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
   },

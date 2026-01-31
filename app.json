@@ -40,9 +40,6 @@
       "policy": "appVersion"
     },
     "owner": "aryanseth97",
-    "plugins": [
-      "expo-secure-store",
-      "expo-font"
-    ]
+    "plugins": ["expo-secure-store", "expo-font", "expo-updates"]
   }
 }

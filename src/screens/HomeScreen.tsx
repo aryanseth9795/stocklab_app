@@ -171,14 +171,9 @@ export default function HomeScreen() {
     }
   }, [socket, isAuthed]);
 
-  // Open buy/sell modal
+  // Navigate to stock detail screen
   const handleStockPress = (stock: Stock) => {
-    if (!isAuthed) {
-      navigation.navigate("Login");
-      return;
-    }
-    setSelectedStock(stock);
-    setModalVisible(true);
+    navigation.navigate("StockDetail", { stock });
   };
 
   // Close modal and refresh
@@ -207,8 +202,12 @@ export default function HomeScreen() {
   );
 
   const renderStock = useCallback(
-    ({ item }: { item: Stock }) => (
-      <StockCard stock={item} onPress={() => handleStockPress(item)} />
+    ({ item, index }: { item: Stock; index: number }) => (
+      <StockCard
+        stock={item}
+        index={index}
+        onPress={() => handleStockPress(item)}
+      />
     ),
     [],
   );
@@ -261,7 +260,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    // flex: 1,
+    // flex: 1 causes gap between screen and tabs
     backgroundColor: colors.background,
   },
   staticHeader: {

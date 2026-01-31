@@ -343,6 +343,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   listContent: {
+    flexGrow: 1, // Fill screen when content is minimal
     padding: spacing.lg,
     paddingBottom: spacing.xxxl,
   },

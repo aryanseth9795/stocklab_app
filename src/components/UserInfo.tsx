@@ -1,15 +1,25 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withRepeat,
+  withSequence,
+  withTiming,
+  FadeIn,
+  Easing,
+} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, borderRadius, spacing, typography, shadows } from "../theme";
+import { colors, borderRadius, spacing, shadows } from "../theme";
 import { Button } from "./ui";
 
 interface UserInfoProps {
   name: string;
   walletAmount: number;
-  portfolioAmount: number; // Current market value
-  investedAmount?: number; // Original invested amount for P&L calculation
+  portfolioAmount: number;
+  investedAmount?: number;
   isAuthed: boolean;
   onLoginPress?: () => void;
 }
@@ -22,120 +32,155 @@ export default function UserInfo({
   isAuthed,
   onLoginPress,
 }: UserInfoProps) {
+  const scale = useSharedValue(0.95);
+  const pulseScale = useSharedValue(1);
+
+  // Entrance animation
+  useEffect(() => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 100 });
+  }, [scale]);
+
+  // Pulse animation for P&L badge
+  useEffect(() => {
+    if (!isAuthed || investedAmount <= 0) return;
+
+    pulseScale.value = withRepeat(
+      withSequence(
+        withTiming(1.03, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      true,
+    );
+  }, [isAuthed, investedAmount, pulseScale]);
+
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
+
   if (!isAuthed) {
     return (
-      <LinearGradient
-        colors={colors.gradients.card}
-        style={styles.guestCard}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <Ionicons
-          name="shield-checkmark-outline"
-          size={32}
-          color={colors.primary}
-          style={{ marginBottom: spacing.sm }}
-        />
-        <Text style={styles.guestTitle}>Start Paper Trading</Text>
-        <Text style={styles.guestText}>
-          Join thousands of traders learning risk-free.
-        </Text>
-        <Button
-          title="Login / Signup"
-          variant="gradient"
-          size="sm"
-          fullWidth
-          style={{ marginTop: spacing.md }}
-          onPress={onLoginPress}
-        />
-      </LinearGradient>
+      <Animated.View entering={FadeIn.duration(500)} style={scaleStyle}>
+        <LinearGradient
+          colors={colors.gradients.card}
+          style={styles.guestCard}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Ionicons
+            name="shield-checkmark-outline"
+            size={32}
+            color={colors.primary}
+            style={{ marginBottom: spacing.sm }}
+          />
+          <Text style={styles.guestTitle}>Start Paper Trading</Text>
+          <Text style={styles.guestText}>
+            Join thousands of traders learning risk-free.
+          </Text>
+          <Button
+            title="Login / Signup"
+            variant="gradient"
+            size="sm"
+            fullWidth
+            style={{ marginTop: spacing.md }}
+            onPress={onLoginPress}
+          />
+        </LinearGradient>
+      </Animated.View>
     );
   }
 
   const totalValue = (walletAmount || 0) + (portfolioAmount || 0);
-
-  // Calculate P&L
   const pnl = portfolioAmount - investedAmount;
   const pnlPercent = investedAmount > 0 ? (pnl / investedAmount) * 100 : 0;
   const isProfit = pnl >= 0;
 
   return (
-    <LinearGradient
-      colors={["#312E81", "#4338CA", "#1E1B4B"]} // Deep Indigo Gradient
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.card}
-    >
-      {/* Background decoration */}
-      <View style={styles.glow} />
+    <Animated.View entering={FadeIn.duration(500)} style={scaleStyle}>
+      <LinearGradient
+        colors={["#312E81", "#4338CA", "#1E1B4B"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.card}
+      >
+        <View style={styles.glow} />
 
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.greetingLabel}>Welcome back,</Text>
-          <Text style={styles.greetingName}>{name}</Text>
-        </View>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{name.charAt(0).toUpperCase()}</Text>
-        </View>
-      </View>
-
-      <View style={styles.balanceContainer}>
-        <Text style={styles.balanceLabel}>Total Net Worth</Text>
-        <Text
-          style={[
-            styles.balanceValue,
-            { color: isProfit ? colors.emerald : colors.rose },
-          ]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-        >
-          ${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-        </Text>
-        {investedAmount > 0 && (
-          <View
-            style={[
-              styles.pnlBadge,
-              {
-                backgroundColor: isProfit
-                  ? colors.emeraldLight
-                  : colors.roseLight,
-              },
-            ]}
-          >
-            <Ionicons
-              name={isProfit ? "trending-up" : "trending-down"}
-              size={14}
-              color={isProfit ? colors.emerald : colors.rose}
-            />
-            <Text
-              style={[
-                styles.pnlText,
-                { color: isProfit ? colors.emerald : colors.rose },
-              ]}
-            >
-              {isProfit ? "+" : ""}
-              {pnl.toFixed(2)} ({pnlPercent.toFixed(1)}%)
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.greetingLabel}>Welcome back,</Text>
+            <Text style={styles.greetingName}>{name}</Text>
+          </View>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {name.charAt(0).toUpperCase()}
             </Text>
           </View>
-        )}
-      </View>
+        </View>
 
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Available Cash</Text>
-          <Text style={styles.statValue}>
-            ${walletAmount?.toLocaleString()}
+        <View style={styles.balanceContainer}>
+          <Text style={styles.balanceLabel}>Total Net Worth</Text>
+          <Text
+            style={[
+              styles.balanceValue,
+              { color: isProfit ? colors.emerald : colors.rose },
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            $
+            {totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </Text>
+          {investedAmount > 0 && (
+            <Animated.View
+              style={[
+                styles.pnlBadge,
+                {
+                  backgroundColor: isProfit
+                    ? colors.emeraldLight
+                    : colors.roseLight,
+                },
+                pulseStyle,
+              ]}
+            >
+              <Ionicons
+                name={isProfit ? "trending-up" : "trending-down"}
+                size={14}
+                color={isProfit ? colors.emerald : colors.rose}
+              />
+              <Text
+                style={[
+                  styles.pnlText,
+                  { color: isProfit ? colors.emerald : colors.rose },
+                ]}
+              >
+                {isProfit ? "+" : ""}
+                {pnl.toFixed(2)} ({pnlPercent.toFixed(1)}%)
+              </Text>
+            </Animated.View>
+          )}
         </View>
-        <View style={styles.divider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statLabel}>Invested</Text>
-          <Text style={styles.statValue}>
-            ${portfolioAmount?.toLocaleString()}
-          </Text>
+
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Available Cash</Text>
+            <Text style={styles.statValue}>
+              ${walletAmount?.toLocaleString()}
+            </Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Invested</Text>
+            <Text style={styles.statValue}>
+              ${portfolioAmount?.toLocaleString()}
+            </Text>
+          </View>
         </View>
-      </View>
-    </LinearGradient>
+      </LinearGradient>
+    </Animated.View>
   );
 }
 
@@ -165,8 +210,6 @@ const styles = StyleSheet.create({
     borderRadius: 75,
     backgroundColor: "rgba(255,255,255,0.1)",
   },
-
-  // Header
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -195,8 +238,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 12,
   },
-
-  // Balance
   balanceContainer: {
     marginBottom: spacing.md,
     alignItems: "center",
@@ -214,8 +255,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     textAlign: "center",
   },
-
-  // Stats
   statsRow: {
     flexDirection: "row",
     backgroundColor: "rgba(0,0,0,0.2)",
@@ -240,8 +279,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFF",
   },
-
-  // P&L
   pnlBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -256,8 +293,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-
-  // Guest
   guestTitle: {
     fontSize: 18,
     fontWeight: "700",

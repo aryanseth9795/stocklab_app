@@ -50,8 +50,10 @@ export default function BuySellModal({
       setAmountStr("");
       setQtyStr("");
       setLockedPrice(stock.stockPrice);
+      // Refresh user data to ensure wallet balance is current
+      refreshUser();
     }
-  }, [visible, stock]);
+  }, [visible, stock, refreshUser]);
 
   const price = lockedPrice || stock?.stockPrice || 0;
   const walletUSD = user?.balance || 0;

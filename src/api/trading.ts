@@ -80,3 +80,62 @@ export async function getAccountDetails(): Promise<{
     return { success: false, user: null, message };
   }
 }
+
+// Update user profile
+export async function updateProfile(data: {
+  name?: string;
+  currentPassword?: string;
+  newPassword?: string;
+}): Promise<{
+  success: boolean;
+  user?: any;
+  message: string;
+}> {
+  try {
+    const response = await api.put("/profile", data);
+    return {
+      success: true,
+      user: response.data.user,
+      message: response.data.message || "Profile updated successfully",
+    };
+  } catch (error: any) {
+    const message = error.response?.data?.message || "Failed to update profile";
+    return { success: false, message };
+  }
+}
+
+// Get Profit/Loss statistics
+export async function getProfitLoss(days?: number): Promise<{
+  success: boolean;
+  data?: {
+    realizedPL: number;
+    totalBuyAmount: number;
+    totalSellAmount: number;
+    totalBuyCount: number;
+    totalSellCount: number;
+    totalTrades: number;
+    avgTradeSize: number;
+    symbolBreakdown: Array<{
+      symbol: string;
+      realizedPL: number;
+      totalBuy: number;
+      totalSell: number;
+      buyVolume: number;
+      sellVolume: number;
+      buyCount: number;
+      sellCount: number;
+    }>;
+    period: string;
+  };
+  message?: string;
+}> {
+  try {
+    const params = days ? { days: days.toString() } : {};
+    const response = await api.get("/stats/pl", { params });
+    return { success: true, data: response.data.data };
+  } catch (error: any) {
+    const message =
+      error.response?.data?.message || "Failed to fetch P/L statistics";
+    return { success: false, message };
+  }
+}
