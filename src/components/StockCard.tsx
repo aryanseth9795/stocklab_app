@@ -70,69 +70,70 @@ function StockCard({ stock, onPress, index = 0 }: StockCardProps) {
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
-      <Animated.View
-        entering={enteringAnimation}
-        style={[styles.container, scaleStyle]}
-      >
-        <LinearGradient
-          colors={colors.gradients.card}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.card}
-        >
-          <Animated.View style={[StyleSheet.absoluteFill, flashStyle]} />
+      {/* Outer view for layout animation */}
+      <Animated.View entering={enteringAnimation}>
+        {/* Inner view for transform animation */}
+        <Animated.View style={[styles.container, scaleStyle]}>
+          <LinearGradient
+            colors={colors.gradients.card}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.card}
+          >
+            <Animated.View style={[StyleSheet.absoluteFill, flashStyle]} />
 
-          {/* Top Glow/Border Accent */}
-          <View
-            style={[
-              styles.accentBorder,
-              { backgroundColor: isUp ? colors.emerald : colors.rose },
-            ]}
-          />
-
-          {/* Header */}
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.symbol}>{stock.stocksymbol}</Text>
-              <Text style={styles.name}>{stock.stockName}</Text>
-            </View>
-
+            {/* Top Glow/Border Accent */}
             <View
-              style={[styles.badge, isUp ? styles.badgeUp : styles.badgeDown]}
-            >
-              <Text
-                style={[
-                  styles.badgeText,
-                  { color: isUp ? colors.emerald : colors.rose },
-                ]}
-              >
-                {isUp ? "▲" : "▼"}{" "}
-                {Math.abs(stock.stockChangePercentage).toFixed(2)}%
-              </Text>
-            </View>
-          </View>
+              style={[
+                styles.accentBorder,
+                { backgroundColor: isUp ? colors.emerald : colors.rose },
+              ]}
+            />
 
-          {/* Price & Change */}
-          <View style={styles.priceRow}>
-            <View>
-              <Text style={styles.price}>${stock.stockPrice.toFixed(2)}</Text>
-              <Text style={styles.label}>Current Price</Text>
+            {/* Header */}
+            <View style={styles.header}>
+              <View>
+                <Text style={styles.symbol}>{stock.stocksymbol}</Text>
+                <Text style={styles.name}>{stock.stockName}</Text>
+              </View>
+
+              <View
+                style={[styles.badge, isUp ? styles.badgeUp : styles.badgeDown]}
+              >
+                <Text
+                  style={[
+                    styles.badgeText,
+                    { color: isUp ? colors.emerald : colors.rose },
+                  ]}
+                >
+                  {isUp ? "▲" : "▼"}{" "}
+                  {Math.abs(stock.stockChangePercentage).toFixed(2)}%
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.changeContainer}>
-              <Text
-                style={[
-                  styles.changeValue,
-                  { color: isUp ? colors.emerald : colors.rose },
-                ]}
-              >
-                {isUp ? "+" : ""}
-                {stock.stockChange.toFixed(2)}
-              </Text>
-              <Text style={styles.label}>Change (USD)</Text>
+            {/* Price & Change */}
+            <View style={styles.priceRow}>
+              <View>
+                <Text style={styles.price}>${stock.stockPrice.toFixed(2)}</Text>
+                <Text style={styles.label}>Current Price</Text>
+              </View>
+
+              <View style={styles.changeContainer}>
+                <Text
+                  style={[
+                    styles.changeValue,
+                    { color: isUp ? colors.emerald : colors.rose },
+                  ]}
+                >
+                  {isUp ? "+" : ""}
+                  {stock.stockChange.toFixed(2)}
+                </Text>
+                <Text style={styles.label}>Change (USD)</Text>
+              </View>
             </View>
-          </View>
-        </LinearGradient>
+          </LinearGradient>
+        </Animated.View>
       </Animated.View>
     </Pressable>
   );

@@ -14,8 +14,9 @@ import { colors, spacing, borderRadius } from "../theme";
 import { RootStackParamList } from "../navigation/types";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
+import { useToast } from "../context/ToastContext";
 import { BuySellModal } from "../components";
-import { Stock, Tick, PortfolioBatch } from "../types";
+import { Stock, Tick, PortfolioBatch, Position, PortfolioInfo } from "../types";
 
 type StockDetailRouteProp = RouteProp<RootStackParamList, "StockDetail">;
 
@@ -56,8 +57,22 @@ export default function StockDetailScreen() {
   const { socket } = useSocket();
 
   const [modalVisible, setModalVisible] = useState(false);
+  const [modalAction, setModalAction] = useState<"buy" | "sell">("buy");
   const [chartLoading, setChartLoading] = useState(true);
   const [liveStock, setLiveStock] = useState<Stock>(initialStock);
+  const [interval, setInterval] = useState("15");
+  const [holdingQuantity, setHoldingQuantity] = useState(0);
+  const { showToast } = useToast();
+
+  const intervals = [
+    { value: "1", label: "1m" },
+    { value: "5", label: "5m" },
+    { value: "15", label: "15m" },
+    { value: "60", label: "1H" },
+    { value: "240", label: "4H" },
+    { value: "D", label: "1D" },
+    { value: "W", label: "1W" },
+  ];
 
   const tradingViewSymbol = useMemo(
     () => getTradingViewSymbol(initialStock.stocksymbol),
@@ -105,9 +120,22 @@ export default function StockDetailScreen() {
       }
     };
 
-    // Subscribe to both landing and portfolio batch for comprehensive updates
     socket.on("landing", handleLandingUpdate);
     socket.on("portfolio:batch", handlePortfolioBatch);
+
+    // Handler for portfolio info to get holdings
+    const handlePortfolioInfo = (payload: PortfolioInfo) => {
+      if (payload?.positions && Array.isArray(payload.positions)) {
+        const position = payload.positions.find(
+          (p: Position) =>
+            (p.stockSymbol || p.stockName).toUpperCase() ===
+            initialStock.stocksymbol.toUpperCase(),
+        );
+        setHoldingQuantity(position?.stockQuantity || 0);
+      }
+    };
+
+    socket.on("Portfolio_info", handlePortfolioInfo);
 
     // Request initial data
     socket.emit("landing");
@@ -116,6 +144,7 @@ export default function StockDetailScreen() {
     return () => {
       socket.off("landing", handleLandingUpdate);
       socket.off("portfolio:batch", handlePortfolioBatch);
+      socket.off("Portfolio_info", handlePortfolioInfo);
     };
   }, [socket, initialStock.stocksymbol]);
 
@@ -150,7 +179,7 @@ export default function StockDetailScreen() {
             new TradingView.widget({
               "autosize": true,
               "symbol": "${tradingViewSymbol}",
-              "interval": "15",
+              "interval": "${interval}",
               "timezone": "Asia/Kolkata",
               "theme": "dark",
               "style": "1",
@@ -158,6 +187,7 @@ export default function StockDetailScreen() {
               "toolbar_bg": "#050505",
               "enable_publishing": false,
               "hide_top_toolbar": true,
+              "hide_side_toolbar": true,
               "hide_legend": false,
               "save_image": false,
               "hide_volume": true,
@@ -181,18 +211,32 @@ export default function StockDetailScreen() {
       </body>
     </html>
   `,
-    [tradingViewSymbol],
+    [tradingViewSymbol, interval],
   );
 
   const isPositive = (liveStock.stockChangePercentage ?? 0) >= 0;
 
-  const handleBuySell = useCallback(() => {
+  const handleBuy = useCallback(() => {
     if (!isAuthed) {
       navigation.navigate("Login" as never);
       return;
     }
+    setModalAction("buy");
     setModalVisible(true);
   }, [isAuthed, navigation]);
+
+  const handleSell = useCallback(() => {
+    if (!isAuthed) {
+      navigation.navigate("Login" as never);
+      return;
+    }
+    if (holdingQuantity <= 0) {
+      showToast("error", "No quantity available to sell");
+      return;
+    }
+    setModalAction("sell");
+    setModalVisible(true);
+  }, [isAuthed, navigation, holdingQuantity, showToast]);
 
   const handleModalClose = () => {
     setModalVisible(false);
@@ -233,8 +277,9 @@ export default function StockDetailScreen() {
         </View>
       </View>
 
-      {/* Chart - Takes full remaining space */}
+      {/* Chart with Overlay Interval Buttons */}
       <View style={styles.chartContainer}>
+        {/* Full Screen Chart */}
         {chartLoading && (
           <View style={styles.chartLoading}>
             <ActivityIndicator size="large" color={colors.indigo} />
@@ -251,13 +296,39 @@ export default function StockDetailScreen() {
           originWhitelist={["*"]}
           mixedContentMode="always"
         />
+
+        {/* Overlay Interval Selector */}
+        <View style={styles.intervalBar}>
+          {intervals.map((item) => (
+            <TouchableOpacity
+              key={item.value}
+              style={[
+                styles.intervalBtn,
+                interval === item.value && styles.intervalBtnActive,
+              ]}
+              onPress={() => {
+                setChartLoading(true);
+                setInterval(item.value);
+              }}
+            >
+              <Text
+                style={[
+                  styles.intervalText,
+                  interval === item.value && styles.intervalTextActive,
+                ]}
+              >
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {/* Action Buttons */}
       <View style={styles.actionContainer}>
         <TouchableOpacity
           style={[styles.actionButton, styles.buyButton]}
-          onPress={handleBuySell}
+          onPress={handleBuy}
         >
           <Ionicons name="trending-up" size={18} color="#fff" />
           <Text style={styles.actionButtonText}>Buy</Text>
@@ -265,7 +336,7 @@ export default function StockDetailScreen() {
 
         <TouchableOpacity
           style={[styles.actionButton, styles.sellButton]}
-          onPress={handleBuySell}
+          onPress={handleSell}
         >
           <Ionicons name="trending-down" size={18} color="#fff" />
           <Text style={styles.actionButtonText}>Sell</Text>
@@ -278,6 +349,8 @@ export default function StockDetailScreen() {
         onClose={handleModalClose}
         stock={liveStock}
         onSuccess={handleModalClose}
+        defaultAction={modalAction}
+        holdingQuantity={holdingQuantity}
       />
     </SafeAreaView>
   );
@@ -349,6 +422,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     position: "relative",
+  },
+  intervalBar: {
+    position: "absolute",
+    top: 150,
+    left: spacing.sm,
+    zIndex: 100,
+    backgroundColor: "rgba(5, 5, 5, 0.85)",
+    borderRadius: borderRadius.md,
+    padding: 4,
+    gap: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    opacity: 0.7,
+  },
+  intervalBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: borderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  intervalBtnActive: {
+    backgroundColor: colors.indigo,
+  },
+  intervalText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: colors.textMuted,
+  },
+  intervalTextActive: {
+    color: "#fff",
   },
   chartLoading: {
     ...StyleSheet.absoluteFillObject,

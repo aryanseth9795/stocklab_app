@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,9 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, borderRadius, spacing, typography, shadows } from "../theme";
@@ -23,6 +24,8 @@ interface BuySellModalProps {
   onClose: () => void;
   stock: Stock | null;
   onSuccess?: () => void;
+  defaultAction?: "buy" | "sell";
+  holdingQuantity?: number;
 }
 
 type Mode = "amount" | "quantity";
@@ -32,6 +35,8 @@ export default function BuySellModal({
   onClose,
   stock,
   onSuccess,
+  defaultAction = "buy",
+  holdingQuantity = 0,
 }: BuySellModalProps) {
   const { user, refreshUser } = useAuth();
   const { showToast, showAlert, showOrderSuccess } = useToast();
@@ -42,18 +47,57 @@ export default function BuySellModal({
   const [lockedPrice, setLockedPrice] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset state when modal opens
+  // Track previous visibility to detect open transition
+  const wasVisible = useRef(false);
+
+  // Keyboard offset animation
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
+
+  // Keyboard show/hide handlers
   useEffect(() => {
-    if (visible && stock) {
-      setIsBuy(true);
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const keyboardShowListener = Keyboard.addListener(showEvent, (e) => {
+      Animated.timing(keyboardOffset, {
+        toValue: -e.endCoordinates.height * 0.5,
+        duration: Platform.OS === "ios" ? 250 : 100,
+        useNativeDriver: true,
+      }).start();
+    });
+
+    const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
+      Animated.timing(keyboardOffset, {
+        toValue: 0,
+        duration: Platform.OS === "ios" ? 250 : 100,
+        useNativeDriver: true,
+      }).start();
+    });
+
+    return () => {
+      keyboardShowListener.remove();
+      keyboardHideListener.remove();
+    };
+  }, [keyboardOffset]);
+
+  // Reset state only when modal OPENS (not on stock updates)
+  useEffect(() => {
+    // Only reset when transitioning from closed to open
+    if (visible && !wasVisible.current && stock) {
+      setIsBuy(defaultAction === "buy");
       setMode("amount");
       setAmountStr("");
       setQtyStr("");
       setLockedPrice(stock.stockPrice);
       // Refresh user data to ensure wallet balance is current
       refreshUser();
+      // Reset keyboard offset
+      keyboardOffset.setValue(0);
     }
-  }, [visible, stock, refreshUser]);
+    wasVisible.current = visible;
+  }, [visible, stock, refreshUser, defaultAction, keyboardOffset]);
 
   const price = lockedPrice || stock?.stockPrice || 0;
   const walletUSD = user?.balance || 0;
@@ -83,6 +127,8 @@ export default function BuySellModal({
   }, [amountStr, qtyStr, mode, price]);
 
   const insufficientFunds = isBuy && amount > walletUSD;
+  const insufficientHoldings = !isBuy && qty > holdingQuantity;
+  const noHoldings = !isBuy && holdingQuantity <= 0;
   const disableCta =
     !stock ||
     !user?.id ||
@@ -90,7 +136,18 @@ export default function BuySellModal({
     amount <= 0 ||
     qty <= 0 ||
     insufficientFunds ||
+    insufficientHoldings ||
+    noHoldings ||
     submitting;
+
+  // Handler for "Sell All" button
+  const handleSellAll = () => {
+    if (holdingQuantity > 0) {
+      setMode("quantity");
+      setQtyStr(holdingQuantity.toString());
+      setAmountStr("");
+    }
+  };
 
   const handleSubmit = async () => {
     if (disableCta || !stock || !user) return;
@@ -147,18 +204,23 @@ export default function BuySellModal({
       transparent
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.overlay}
-      >
+      <View style={styles.overlay}>
         <TouchableOpacity
           style={styles.backdrop}
           activeOpacity={1}
           onPress={onClose}
         />
 
-        <View style={styles.container}>
-          <ScrollView showsVerticalScrollIndicator={false}>
+        <Animated.View
+          style={[
+            styles.container,
+            { transform: [{ translateY: keyboardOffset }] },
+          ]}
+        >
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
             {/* Header */}
             <View style={styles.header}>
               <View>
@@ -325,12 +387,41 @@ export default function BuySellModal({
               )}
             </View>
 
+            {/* Sell All Button */}
+            {!isBuy && holdingQuantity > 0 && (
+              <TouchableOpacity
+                style={styles.sellAllBtn}
+                onPress={handleSellAll}
+              >
+                <Text style={styles.sellAllText}>
+                  Sell All ({holdingQuantity.toFixed(4)} units)
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {/* Validation Feedback */}
             {isBuy && insufficientFunds && (
               <View style={styles.errorBanner}>
                 <Ionicons name="alert-circle" size={20} color={colors.error} />
                 <Text style={styles.errorText}>
                   Insufficient funds in wallet
+                </Text>
+              </View>
+            )}
+
+            {!isBuy && noHoldings && (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle" size={20} color={colors.error} />
+                <Text style={styles.errorText}>You don't own this stock</Text>
+              </View>
+            )}
+
+            {!isBuy && !noHoldings && insufficientHoldings && (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle" size={20} color={colors.error} />
+                <Text style={styles.errorText}>
+                  Quantity exceeds holdings ({holdingQuantity.toFixed(4)}{" "}
+                  available)
                 </Text>
               </View>
             )}
@@ -360,8 +451,8 @@ export default function BuySellModal({
               />
             </View>
           </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
@@ -380,7 +471,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: borderRadius.xxl,
     borderTopRightRadius: borderRadius.xxl,
     padding: spacing.xl,
-    paddingBottom: spacing.huge, // Safe area padding
+    paddingBottom: spacing.huge,
     maxHeight: "90%",
     borderTopWidth: 1,
     borderTopColor: colors.borderHighlight,
@@ -570,11 +661,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.md,
     marginTop: spacing.sm,
+    justifyContent: "space-around",
   },
   cancelBtn: {
     flex: 1,
+    width: 150,
   },
   submitBtn: {
-    flex: 2,
+    flex: 1,
+    width: 150,
+  },
+  sellAllBtn: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    marginBottom: spacing.lg,
+  },
+  sellAllText: {
+    color: colors.error,
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

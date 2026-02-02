@@ -227,7 +227,7 @@ export default function HistoryScreen() {
 
   return (
     <AuthGuard screenName="your history">
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["top"]}>
         {/* Centered Toggle Slider */}
         <View style={styles.header}>
           <View style={styles.toggle}>
@@ -306,8 +306,8 @@ export default function HistoryScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    // flex: 1,
-    backgroundColor: colors.background,
+    flex: 1,
+    backgroundColor: "#000000",
   },
   header: {
     flexDirection: "row",
@@ -351,6 +351,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#000000",
   },
   emptyContainer: {
     paddingVertical: spacing.xxxl,

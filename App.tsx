@@ -8,8 +8,12 @@ import { SocketProvider } from "./src/context/SocketContext";
 import { ToastProvider } from "./src/context/ToastContext";
 import { RootNavigator } from "./src/navigation";
 import cacheService from "./src/services/cacheService";
+import { useOTAUpdates } from "./src/hooks";
 
 export default function App() {
+  // Check for OTA updates silently on app start
+  useOTAUpdates();
+
   // Preload cache into memory on app start for instant data access
   useEffect(() => {
     cacheService.preloadCache();

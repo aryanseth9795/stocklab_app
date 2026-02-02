@@ -44,9 +44,13 @@ export default function DashboardScreen() {
   // Load P/L data
   const loadPLData = async (days: number) => {
     try {
+      console.log("Loading P/L data for days:", days);
       const result = await getProfitLoss(days);
+      console.log("P/L API result:", result);
       if (result.success && result.data) {
         setStats(result.data);
+      } else {
+        console.error("P/L API error:", result.message);
       }
     } catch (error) {
       console.error("Failed to load P/L:", error);

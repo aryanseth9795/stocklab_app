@@ -40,20 +40,6 @@ export default function UserInfo({
     scale.value = withSpring(1, { damping: 15, stiffness: 100 });
   }, [scale]);
 
-  // Pulse animation for P&L badge
-  useEffect(() => {
-    if (!isAuthed || investedAmount <= 0) return;
-
-    pulseScale.value = withRepeat(
-      withSequence(
-        withTiming(1.03, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
-      ),
-      -1,
-      true,
-    );
-  }, [isAuthed, investedAmount, pulseScale]);
-
   const scaleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
@@ -64,7 +50,7 @@ export default function UserInfo({
 
   if (!isAuthed) {
     return (
-      <Animated.View entering={FadeIn.duration(500)} style={scaleStyle}>
+      <Animated.View style={scaleStyle}>
         <LinearGradient
           colors={colors.gradients.card}
           style={styles.guestCard}
@@ -100,7 +86,7 @@ export default function UserInfo({
   const isProfit = pnl >= 0;
 
   return (
-    <Animated.View entering={FadeIn.duration(500)} style={scaleStyle}>
+    <Animated.View style={scaleStyle}>
       <LinearGradient
         colors={["#312E81", "#4338CA", "#1E1B4B"]}
         start={{ x: 0, y: 0 }}

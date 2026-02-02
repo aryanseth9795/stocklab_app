@@ -54,6 +54,7 @@ export default function PortfolioScreen() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [selectedHoldingQty, setSelectedHoldingQty] = useState(0);
 
   // Track if we've loaded from cache
   const cacheLoadedRef = useRef(false);
@@ -195,6 +196,7 @@ export default function PortfolioScreen() {
       ts: tick?.ts ?? new Date().toLocaleTimeString(),
     };
     setSelectedStock(stock);
+    setSelectedHoldingQty(row.qty);
     setModalVisible(true);
   };
 
@@ -369,6 +371,8 @@ export default function PortfolioScreen() {
             onClose={() => setModalVisible(false)}
             stock={selectedStock}
             onSuccess={handleRefresh}
+            defaultAction="sell"
+            holdingQuantity={selectedHoldingQty}
           />
         </SafeAreaView>
       )}
@@ -380,7 +384,7 @@ const styles = StyleSheet.create({
   container: {
     // flex: 1 causes gap between screen and tabs
     backgroundColor: colors.background,
-    height:"100%"
+    height: "100%",
   },
   scrollContent: {
     flexGrow: 1, // Fill screen when content is minimal

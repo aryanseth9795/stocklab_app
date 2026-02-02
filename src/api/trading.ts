@@ -134,6 +134,11 @@ export async function getProfitLoss(days?: number): Promise<{
     const response = await api.get("/stats/pl", { params });
     return { success: true, data: response.data.data };
   } catch (error: any) {
+    console.error("P/L API Error Details:", {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
     const message =
       error.response?.data?.message || "Failed to fetch P/L statistics";
     return { success: false, message };
