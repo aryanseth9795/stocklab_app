@@ -185,7 +185,7 @@ export default function DashboardScreen() {
                 <Text style={styles.statLabel}>Sells</Text>
               </View>
               <View style={styles.statCard}>
-                <Ionicons name="calculator" size={20} color={colors.amber} />
+                <Ionicons name="calculator" size={20} color={colors.warning} />
                 <Text style={styles.statValue}>
                   ${(stats?.avgTradeSize ?? 0).toFixed(0)}
                 </Text>

@@ -94,7 +94,7 @@ export default function EditProfileScreen() {
       }
 
       if (Object.keys(payload).length === 0) {
-        showToast({ message: "No changes to save", type: "info" });
+        showToast("info", "No Changes", "No changes to save");
         setLoading(false);
         return;
       }
@@ -102,7 +102,7 @@ export default function EditProfileScreen() {
       const result = await updateProfile(payload);
 
       if (result.success) {
-        showToast({ message: result.message, type: "success" });
+        showToast("success", "Profile Updated", result.message);
         await refreshUser();
         setCurrentPassword("");
         setNewPassword("");
