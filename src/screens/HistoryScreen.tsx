@@ -160,11 +160,11 @@ export default function HistoryScreen() {
           </View>
           <View style={styles.itemRow}>
             <Text style={styles.label}>Price</Text>
-            <Text style={styles.value}>${item.stockPrice.toFixed(2)}</Text>
+            <Text style={styles.value}>₹{item.stockPrice.toFixed(2)}</Text>
           </View>
           <View style={styles.itemRow}>
             <Text style={styles.label}>Total</Text>
-            <Text style={styles.valueTotal}>${item.stockTotal.toFixed(2)}</Text>
+            <Text style={styles.valueTotal}>₹{item.stockTotal.toFixed(2)}</Text>
           </View>
         </View>
         <Text style={styles.timestamp}>
@@ -201,18 +201,18 @@ export default function HistoryScreen() {
         <View style={styles.itemBody}>
           <View style={styles.itemRow}>
             <Text style={styles.label}>Opening Balance</Text>
-            <Text style={styles.value}>${item.openingBalance.toFixed(2)}</Text>
+            <Text style={styles.value}>₹{item.openingBalance.toFixed(2)}</Text>
           </View>
           <View style={styles.itemRow}>
             <Text style={styles.label}>Used</Text>
             <Text style={[styles.value, isDebit ? styles.loss : styles.gain]}>
-              {isDebit ? "-" : "+"}${item.usedBalance.toFixed(2)}
+              {isDebit ? "-" : "+"}₹{item.usedBalance.toFixed(2)}
             </Text>
           </View>
           <View style={styles.itemRow}>
             <Text style={styles.label}>Closing Balance</Text>
             <Text style={styles.valueTotal}>
-              ${item.closingBalance.toFixed(2)}
+              ₹{item.closingBalance.toFixed(2)}
             </Text>
           </View>
         </View>

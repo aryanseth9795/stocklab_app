@@ -1,4 +1,10 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import {
   View,
   Text,
@@ -11,58 +17,84 @@ import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { colors, spacing, borderRadius } from "../theme";
-import { RootStackParamList } from "../navigation/types";
-import { useAuth } from "../context/AuthContext";
-import { useSocket } from "../context/SocketContext";
-import { useToast } from "../context/ToastContext";
+import { Commodity } from "../types";
+import { config } from "../config";
 import { BuySellModal } from "../components";
-import { Stock, Tick, PortfolioBatch, Position, PortfolioInfo } from "../types";
+import { executeCommodityOrder, getCommodityPortfolio } from "../api/commodity";
+import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
+import { RootStackParamList } from "../navigation/types";
 
-type StockDetailRouteProp = RouteProp<RootStackParamList, "StockDetail">;
+type CommodityDetailRouteProp = RouteProp<
+  RootStackParamList,
+  "CommodityDetail"
+>;
 
-// Map app symbols to TradingView symbols
-const getTradingViewSymbol = (symbol: string): string => {
-  const symbolUpper = symbol.toUpperCase();
-
-  const symbolMap: Record<string, string> = {
-    BTCUSDT: "BINANCE:BTCUSDT",
-    ETHUSDT: "BINANCE:ETHUSDT",
-    BNBUSDT: "BINANCE:BNBUSDT",
-    XRPUSDT: "BINANCE:XRPUSDT",
-    SOLUSDT: "BINANCE:SOLUSDT",
-    DOGEUSDT: "BINANCE:DOGEUSDT",
-    ADAUSDT: "BINANCE:ADAUSDT",
-    TRXUSDT: "BINANCE:TRXUSDT",
-    AVAXUSDT: "BINANCE:AVAXUSDT",
-    LINKUSDT: "BINANCE:LINKUSDT",
-    MATICUSDT: "BINANCE:MATICUSDT",
-    DOTUSDT: "BINANCE:DOTUSDT",
-    LTCUSDT: "BINANCE:LTCUSDT",
-    ATOMUSDT: "BINANCE:ATOMUSDT",
-    UNIUSDT: "BINANCE:UNIUSDT",
-    GOLD: "TVC:GOLD",
-    XAUUSD: "OANDA:XAUUSD",
-    SILVER: "TVC:SILVER",
-    XAGUSD: "OANDA:XAGUSD",
-  };
-
-  return symbolMap[symbolUpper] || `BINANCE:${symbolUpper}`;
+// Global symbols that work in TradingView embed widget (MCX symbols don't)
+const TRADINGVIEW_SYMBOLS: Record<string, string> = {
+  GOLD: "TVC:GOLD",
+  SILVER: "TVC:SILVER",
+  CRUDEOIL: "NYMEX:CL1!",
+  COPPER: "COMEX:HG1!",
 };
 
-export default function StockDetailScreen() {
-  const navigation = useNavigation();
-  const route = useRoute<StockDetailRouteProp>();
-  const { stock: initialStock } = route.params;
-  const { isAuthed } = useAuth();
-  const { socket } = useSocket();
+// Commodity metadata
+const COMMODITY_META: Record<
+  string,
+  { icon: string; iconColor: string; unit: string; lotLabel: string }
+> = {
+  GOLD: {
+    icon: "ellipse",
+    iconColor: "#FFD700",
+    unit: "gm",
+    lotLabel: "10 gm",
+  },
+  SILVER: {
+    icon: "ellipse",
+    iconColor: "#C0C0C0",
+    unit: "kg",
+    lotLabel: "1 kg",
+  },
+  CRUDEOIL: {
+    icon: "water",
+    iconColor: "#4A90D9",
+    unit: "barrel",
+    lotLabel: "1 bbl",
+  },
+  COPPER: {
+    icon: "hardware-chip",
+    iconColor: "#B87333",
+    unit: "kg",
+    lotLabel: "1 kg",
+  },
+};
 
+const COMMODITY_FALLBACK_META = {
+  icon: "cube",
+  iconColor: "#888",
+  unit: "unit",
+  lotLabel: "1 unit",
+};
+
+export default function CommodityDetailScreen() {
+  const navigation = useNavigation<any>();
+  const route = useRoute<CommodityDetailRouteProp>();
+  const { user, isAuthed } = useAuth();
+  const { showOrderSuccess, showAlert, showToast } = useToast();
+
+  const [commodity, setCommodity] = useState<Commodity>(route.params.commodity);
+  const [holdings, setHoldings] = useState<any[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalAction, setModalAction] = useState<"buy" | "sell">("buy");
+  const [defaultAction, setDefaultAction] = useState<"buy" | "sell" | "short">(
+    "buy",
+  );
   const [chartLoading, setChartLoading] = useState(true);
-  const [liveStock, setLiveStock] = useState<Stock>(initialStock);
   const [interval, setInterval] = useState("15");
-  const [holdingQuantity, setHoldingQuantity] = useState(0);
-  const { showToast } = useToast();
+
+  const esRef = useRef<any>(null);
+  const meta = COMMODITY_META[commodity.symbol] ?? COMMODITY_FALLBACK_META;
+  const myHolding = holdings.find((h) => h.symbol === commodity.symbol);
+  const isUp = commodity.change >= 0;
 
   const intervals = [
     { value: "1", label: "1m" },
@@ -74,81 +106,71 @@ export default function StockDetailScreen() {
     { value: "W", label: "1W" },
   ];
 
-  const tradingViewSymbol = useMemo(
-    () => getTradingViewSymbol(initialStock.stocksymbol),
-    [initialStock.stocksymbol],
-  );
-
-  // Subscribe to live updates from landing event
+  // ── SSE for live prices ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!socket) return;
+    let mounted = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const handleLandingUpdate = (stocks: Stock[]) => {
-      if (!Array.isArray(stocks)) return;
+    const connect = () => {
+      if (!mounted) return;
+      esRef.current?.close?.();
 
-      const updated = stocks.find(
-        (s) =>
-          s.stocksymbol.toUpperCase() ===
-          initialStock.stocksymbol.toUpperCase(),
-      );
+      const EventSource = require("react-native-sse").default;
+      const es = new EventSource(config.commoditySSEUrl);
+      esRef.current = es;
 
-      if (updated) {
-        setLiveStock(updated);
-      }
+      es.addEventListener("prices:update", (event: any) => {
+        if (!mounted) return;
+        try {
+          const parsed = JSON.parse(event.data);
+          const list = parsed?.live?.list ?? [];
+          const item = list.find((i: any) => i.symbol === commodity.symbol);
+          if (item && mounted) {
+            setCommodity((prev) => ({
+              ...prev,
+              price: parseFloat(item.lastPrice) || prev.price,
+              change: parseFloat(item.priceChange) || prev.change,
+              changePercentage:
+                parseFloat(item.priceChangePercentage) || prev.changePercentage,
+              expDate: item.expDate ?? prev.expDate,
+            }));
+          }
+        } catch {
+          /* ignore */
+        }
+      });
+
+      es.addEventListener("error", () => {
+        if (!mounted) return;
+        es.close();
+        retryTimer = setTimeout(connect, 10_000);
+      });
     };
 
-    const handlePortfolioBatch = (payload: PortfolioBatch | null) => {
-      if (!payload?.ticks || !Array.isArray(payload.ticks)) return;
-
-      const tick = payload.ticks.find(
-        (t: Tick) =>
-          (t.stocksymbol || t.stockName || "").toUpperCase() ===
-          initialStock.stocksymbol.toUpperCase(),
-      );
-
-      if (tick) {
-        setLiveStock((prev) => ({
-          ...prev,
-          stockPrice: tick.stockPrice,
-          stockPriceINR: tick.stockPriceINR ?? prev.stockPriceINR,
-          stockChange: tick.stockChange ?? prev.stockChange,
-          stockChangeINR: tick.stockChangeINR ?? prev.stockChangeINR,
-          stockChangePercentage:
-            tick.stockChangePercentage ?? prev.stockChangePercentage,
-          ts: tick.ts ?? prev.ts,
-        }));
-      }
-    };
-
-    socket.on("landing", handleLandingUpdate);
-    socket.on("portfolio:batch", handlePortfolioBatch);
-
-    // Handler for portfolio info to get holdings
-    const handlePortfolioInfo = (payload: PortfolioInfo) => {
-      if (payload?.positions && Array.isArray(payload.positions)) {
-        const position = payload.positions.find(
-          (p: Position) =>
-            (p.stockSymbol || p.stockName).toUpperCase() ===
-            initialStock.stocksymbol.toUpperCase(),
-        );
-        setHoldingQuantity(position?.stockQuantity || 0);
-      }
-    };
-
-    socket.on("Portfolio_info", handlePortfolioInfo);
-
-    // Request initial data
-    socket.emit("landing");
-    socket.emit("portfolio");
-
+    connect();
     return () => {
-      socket.off("landing", handleLandingUpdate);
-      socket.off("portfolio:batch", handlePortfolioBatch);
-      socket.off("Portfolio_info", handlePortfolioInfo);
+      mounted = false;
+      esRef.current?.close?.();
+      if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [socket, initialStock.stocksymbol]);
+  }, [commodity.symbol]);
 
-  // TradingView widget HTML
+  // ── Holdings ─────────────────────────────────────────────────────────────
+  const loadHoldings = useCallback(async () => {
+    if (!user) return;
+    const result = await getCommodityPortfolio();
+    if (result.success) setHoldings(result.holdings);
+  }, [user]);
+
+  useEffect(() => {
+    loadHoldings();
+  }, [loadHoldings]);
+
+  // ── TradingView Chart (same layout as StockDetailScreen) ─────────────────
+  // Global symbols + currency conversion to INR
+  const tradingViewSymbol =
+    TRADINGVIEW_SYMBOLS[commodity.symbol] ?? `TVC:${commodity.symbol}`;
+
   const chartHtml = useMemo(
     () => `
     <!DOCTYPE html>
@@ -163,10 +185,7 @@ export default function StockDetailScreen() {
             background: #050505;
             overflow: hidden;
           }
-          #chart-container {
-            height: 100%;
-            width: 100%;
-          }
+          #chart-container { height: 100%; width: 100%; }
         </style>
       </head>
       <body>
@@ -192,6 +211,7 @@ export default function StockDetailScreen() {
               "save_image": false,
               "hide_volume": true,
               "container_id": "tradingview_chart",
+              "currency": "INR",
               "backgroundColor": "#050505",
               "gridColor": "rgba(255, 255, 255, 0.03)",
               "overrides": {
@@ -214,37 +234,64 @@ export default function StockDetailScreen() {
     [tradingViewSymbol, interval],
   );
 
-  const isPositive = (liveStock.stockChangePercentage ?? 0) >= 0;
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleOrderSuccess = async (payload: {
+    symbol: string;
+    quantity: number;
+    rate: number;
+    type: "buy" | "sell" | "short_sell";
+  }) => {
+    const result = await executeCommodityOrder(payload);
+    if (result.success) await loadHoldings();
+    return result;
+  };
 
   const handleBuy = useCallback(() => {
     if (!isAuthed) {
-      navigation.navigate("Login" as never);
+      navigation.navigate("Login");
       return;
     }
-    setModalAction("buy");
+    setDefaultAction("buy");
     setModalVisible(true);
   }, [isAuthed, navigation]);
 
   const handleSell = useCallback(() => {
     if (!isAuthed) {
-      navigation.navigate("Login" as never);
+      navigation.navigate("Login");
       return;
     }
-    if (holdingQuantity <= 0) {
+    if (!myHolding || myHolding.quantity <= 0) {
       showToast("error", "No quantity available to sell");
       return;
     }
-    setModalAction("sell");
+    setDefaultAction("sell");
     setModalVisible(true);
-  }, [isAuthed, navigation, holdingQuantity, showToast]);
+  }, [isAuthed, navigation, myHolding, showToast]);
 
-  const handleModalClose = () => {
-    setModalVisible(false);
+  const handleShort = useCallback(() => {
+    if (!isAuthed) {
+      navigation.navigate("Login");
+      return;
+    }
+    setDefaultAction("short");
+    setModalVisible(true);
+  }, [isAuthed, navigation]);
+
+  // Convert commodity to Stock-like shape for BuySellModal
+  const stockShape = {
+    stockName: commodity.name,
+    stocksymbol: commodity.symbol,
+    stockPrice: commodity.price,
+    stockPriceINR: commodity.price,
+    stockChange: commodity.change,
+    stockChangeINR: commodity.change,
+    stockChangePercentage: commodity.changePercentage,
+    ts: commodity.ts,
   };
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      {/* Compact Header with Live Price */}
+      {/* Compact Header — matches StockDetailScreen */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
@@ -255,31 +302,49 @@ export default function StockDetailScreen() {
 
         <View style={styles.headerCenter}>
           <View style={styles.titleRow}>
-            <Text style={styles.symbolText}>{liveStock.stocksymbol}</Text>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
+              <View
+                style={[
+                  styles.headerIconBox,
+                  { backgroundColor: meta.iconColor + "22" },
+                ]}
+              >
+                <Ionicons
+                  name={meta.icon as any}
+                  size={14}
+                  color={meta.iconColor}
+                />
+              </View>
+              <Text style={styles.symbolText}>{commodity.symbol}</Text>
+            </View>
             <Text style={styles.priceText}>
-              ₹{liveStock.stockPriceINR.toFixed(2)}
+              ₹
+              {commodity.price.toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+              })}
             </Text>
           </View>
           <View style={styles.subtitleRow}>
-            <Text style={styles.nameText}>{liveStock.stockName}</Text>
+            <Text style={styles.nameText}>
+              {commodity.name} \u2022 MCX \u2022 {meta.lotLabel}
+            </Text>
             <Text
               style={[
                 styles.changeText,
-                isPositive
-                  ? styles.changeTextPositive
-                  : styles.changeTextNegative,
+                isUp ? styles.changeTextPositive : styles.changeTextNegative,
               ]}
             >
-              {isPositive ? "+" : ""}
-              {(liveStock.stockChangePercentage ?? 0).toFixed(2)}%
+              {isUp ? "+" : ""}
+              {commodity.changePercentage.toFixed(2)}%
             </Text>
           </View>
         </View>
       </View>
 
-      {/* Chart with Overlay Interval Buttons */}
+      {/* Full-Screen Chart with Interval Overlay */}
       <View style={styles.chartContainer}>
-        {/* Full Screen Chart */}
         {chartLoading && (
           <View style={styles.chartLoading}>
             <ActivityIndicator size="large" color={colors.indigo} />
@@ -324,7 +389,7 @@ export default function StockDetailScreen() {
         </View>
       </View>
 
-      {/* Action Buttons */}
+      {/* Bottom Action Buttons */}
       <View style={styles.actionContainer}>
         <TouchableOpacity
           style={[styles.actionButton, styles.buyButton]}
@@ -341,16 +406,28 @@ export default function StockDetailScreen() {
           <Ionicons name="trending-down" size={18} color="#fff" />
           <Text style={styles.actionButtonText}>Sell</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.shortButton]}
+          onPress={handleShort}
+        >
+          <Ionicons name="arrow-down-circle" size={18} color="#fff" />
+          <Text style={styles.actionButtonText}>Short</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Buy/Sell Modal */}
       <BuySellModal
         visible={modalVisible}
-        onClose={handleModalClose}
-        stock={liveStock}
-        onSuccess={handleModalClose}
-        defaultAction={modalAction}
-        holdingQuantity={holdingQuantity}
+        onClose={() => setModalVisible(false)}
+        stock={stockShape as any}
+        defaultAction={defaultAction}
+        holdingQuantity={myHolding?.quantity ?? 0}
+        assetType="commodity"
+        onCommodityOrder={handleOrderSuccess}
+        onSuccess={() => {
+          setModalVisible(false);
+          loadHoldings();
+        }}
       />
     </SafeAreaView>
   );
@@ -382,6 +459,13 @@ const styles = StyleSheet.create({
   headerCenter: {
     flex: 1,
     marginLeft: spacing.md,
+  },
+  headerIconBox: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
   },
   titleRow: {
     flexDirection: "row",
@@ -474,7 +558,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    gap: spacing.md,
+    gap: spacing.sm,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.surface,
@@ -489,14 +573,17 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.lg,
   },
   buyButton: {
-    backgroundColor: colors.success,
+    backgroundColor: colors.emerald,
   },
   sellButton: {
-    backgroundColor: colors.error,
+    backgroundColor: colors.rose,
+  },
+  shortButton: {
+    backgroundColor: "#F59E0B",
   },
   actionButtonText: {
     color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

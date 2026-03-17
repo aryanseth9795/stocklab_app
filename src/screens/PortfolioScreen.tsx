@@ -17,14 +17,24 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../theme";
-import { Position, Tick, PortfolioBatch, PortfolioInfo, Stock } from "../types";
+import {
+  Position,
+  Tick,
+  PortfolioBatch,
+  PortfolioInfo,
+  Stock,
+  ShortPosition,
+} from "../types";
 import { useSocket } from "../context/SocketContext";
 import { BuySellModal, Card, AuthGuard } from "../components";
 import cacheService from "../services/cacheService";
+import { getShortPositions, closeShortPosition } from "../api/short";
+import { config } from "../config";
+import { useAuth } from "../context/AuthContext";
 
 // Formatters
-const fmtUSD = (n: number) =>
-  `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtINR = (n: number) =>
+  `₹${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtPct = (n: number) =>
   `${n >= 0 ? "+" : ""}${(Number.isFinite(n) ? n : 0).toFixed(2)}%`;
 
@@ -44,6 +54,7 @@ interface HoldingView {
 
 export default function PortfolioScreen() {
   const { socket, isConnected } = useSocket();
+  const { refreshUser } = useAuth();
 
   const [user, setUser] = useState<any>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -51,6 +62,18 @@ export default function PortfolioScreen() {
   const [lastBatchTs, setLastBatchTs] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<"holdings" | "shorts">("holdings");
+  const [shortPositions, setShortPositions] = useState<ShortPosition[]>([]);
+  const [shortLoading, setShortLoading] = useState(false);
+  const [coveringId, setCoveringId] = useState<string | null>(null);
+  // Live commodity prices for short P&L
+  const [commodityPrices, setCommodityPrices] = useState<
+    Record<string, number>
+  >({});
+  const commodityEsRef = useRef<any>(null);
+  const commodityRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
@@ -126,6 +149,62 @@ export default function PortfolioScreen() {
     socket?.emit("portfolio");
   }, [socket]);
 
+  // Load short positions
+  const loadShortPositions = useCallback(async () => {
+    setShortLoading(true);
+    const result = await getShortPositions("open");
+    if (result.success) setShortPositions(result.positions);
+    setShortLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "shorts") loadShortPositions();
+  }, [activeTab, loadShortPositions]);
+
+  // Connect to commodity SSE for live prices on shorts tab
+  useEffect(() => {
+    mountedRef.current = true;
+
+    const connectCommoditySSE = () => {
+      if (!mountedRef.current) return;
+      commodityEsRef.current?.close?.();
+      const EventSource = require("react-native-sse").default;
+      const es: any = new EventSource(config.commoditySSEUrl);
+      commodityEsRef.current = es;
+
+      es.addEventListener("prices:update", (event: any) => {
+        if (!mountedRef.current) return;
+        try {
+          const parsed = JSON.parse(event.data);
+          const list: any[] = parsed?.live?.list ?? [];
+          setCommodityPrices((prev) => {
+            const next = { ...prev };
+            for (const item of list) {
+              next[item.symbol.toUpperCase()] = parseFloat(item.lastPrice) || 0;
+            }
+            return next;
+          });
+        } catch {
+          /* ignore */
+        }
+      });
+
+      es.addEventListener("error", () => {
+        if (!mountedRef.current) return;
+        es.close();
+        commodityRetryRef.current = setTimeout(connectCommoditySSE, 10_000);
+      });
+    };
+
+    connectCommoditySSE();
+
+    return () => {
+      mountedRef.current = false;
+      commodityEsRef.current?.close?.();
+      if (commodityRetryRef.current) clearTimeout(commodityRetryRef.current);
+    };
+  }, []);
+
   // Build tick map
   const bySymbol = useMemo(() => {
     const m = new Map<string, Tick>();
@@ -135,6 +214,35 @@ export default function PortfolioScreen() {
     }
     return m;
   }, [ticks]);
+
+  // Cover a short position at current market price
+  const handleCoverShort = useCallback(
+    async (pos: ShortPosition) => {
+      const sym = pos.stockSymbol.toUpperCase();
+      const tick = bySymbol.get(sym);
+      // Prefer live socket price, then commodity SSE price, then entry price
+      const currentPrice =
+        tick?.stockPriceINR ??
+        tick?.stockPrice ??
+        commodityPrices[sym] ??
+        pos.entryPrice;
+      setCoveringId(pos.id);
+      const result = await closeShortPosition({
+        shortPositionId: pos.id,
+        rate: currentPrice,
+      });
+      setCoveringId(null);
+      if (result.success) {
+        // Reload shorts list
+        await loadShortPositions();
+        // Re-fetch portfolio so wallet KPI on this screen updates
+        socket?.emit("portfolio");
+        // Re-fetch /me so ALL screens (Home, Account, UserInfo) see updated balance
+        refreshUser();
+      }
+    },
+    [bySymbol, commodityPrices, loadShortPositions, socket, refreshUser],
+  );
 
   // Derive holdings and totals
   const { rows, totals } = useMemo(() => {
@@ -147,7 +255,7 @@ export default function PortfolioScreen() {
       const tick = bySymbol.get(symbolU);
 
       const avgBuy = p.stockQuantity ? p.stockTotal / p.stockQuantity : 0;
-      const livePrice = tick?.stockPrice ?? p.stockPrice;
+      const livePrice = tick?.stockPriceINR ?? tick?.stockPrice ?? p.stockPrice;
       const value = livePrice * p.stockQuantity;
 
       investedSum += p.stockTotal;
@@ -189,7 +297,7 @@ export default function PortfolioScreen() {
       stockName: row.name.toLowerCase(),
       stocksymbol: row.symbol,
       stockPrice: row.current,
-      stockPriceINR: tick?.stockPriceINR ?? row.current * 86,
+      stockPriceINR: row.current,
       stockChange: tick?.stockChange ?? 0,
       stockChangeINR: tick?.stockChangeINR ?? 0,
       stockChangePercentage: tick?.stockChangePercentage ?? 0,
@@ -264,20 +372,20 @@ export default function PortfolioScreen() {
                   />
                 </View>
                 <Text style={styles.kpiValue}>
-                  {fmtUSD(user?.balance ?? 0)}
+                  {fmtINR(user?.balance ?? 0)}
                 </Text>
                 <Text style={styles.kpiSubtext}>Available funds</Text>
               </View>
 
               <View style={styles.kpiCard}>
                 <Text style={styles.kpiLabel}>Invested</Text>
-                <Text style={styles.kpiValue}>{fmtUSD(totals.invested)}</Text>
+                <Text style={styles.kpiValue}>{fmtINR(totals.invested)}</Text>
                 <Text style={styles.kpiSubtext}>Total principal</Text>
               </View>
 
               <View style={styles.kpiCard}>
                 <Text style={styles.kpiLabel}>Current Value</Text>
-                <Text style={styles.kpiValue}>{fmtUSD(totals.current)}</Text>
+                <Text style={styles.kpiValue}>{fmtINR(totals.current)}</Text>
                 <Text style={styles.kpiSubtext}>Mark-to-market</Text>
               </View>
 
@@ -296,7 +404,7 @@ export default function PortfolioScreen() {
                     totals.pnl >= 0 ? styles.gain : styles.loss,
                   ]}
                 >
-                  {fmtUSD(totals.pnl)}
+                  {fmtINR(totals.pnl)}
                 </Text>
                 <Text
                   style={[
@@ -309,61 +417,174 @@ export default function PortfolioScreen() {
               </View>
             </View>
 
+            {/* Segment Tabs */}
+            <View style={styles.segmentTabs}>
+              {(["holdings", "shorts"] as const).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[
+                    styles.segmentTab,
+                    activeTab === tab && styles.segmentTabActive,
+                  ]}
+                  onPress={() => setActiveTab(tab)}
+                >
+                  <Text
+                    style={[
+                      styles.segmentTabText,
+                      activeTab === tab && styles.segmentTabTextActive,
+                    ]}
+                  >
+                    {tab === "holdings" ? "Holdings" : "Short Positions"}
+                    {tab === "shorts" && shortPositions.length > 0
+                      ? ` (${shortPositions.length})`
+                      : ""}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             {/* Holdings */}
-            <Card style={styles.holdingsCard}>
-              <Text style={styles.holdingsTitle}>Holdings</Text>
-              {rows.length === 0 ? (
-                <Text style={styles.emptyText}>
-                  No holdings yet. Start trading!
-                </Text>
-              ) : (
-                rows.map((row) => {
-                  const up = row.pnl >= 0;
-                  const dayUp = (row.dayPct ?? 0) >= 0;
-                  return (
-                    <TouchableOpacity
-                      key={row.key}
-                      style={styles.holdingRow}
-                      onPress={() => handleRowPress(row)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.holdingLeft}>
-                        <View style={styles.holdingDot} />
-                        <View>
-                          <Text style={styles.holdingSymbol}>{row.symbol}</Text>
-                          <Text style={styles.holdingQty}>
-                            {row.qty.toFixed(4)} units
-                          </Text>
+            {activeTab === "holdings" && (
+              <Card style={styles.holdingsCard}>
+                <Text style={styles.holdingsTitle}>Holdings</Text>
+                {rows.length === 0 ? (
+                  <Text style={styles.emptyText}>
+                    No holdings yet. Start trading!
+                  </Text>
+                ) : (
+                  rows.map((row) => {
+                    const up = row.pnl >= 0;
+                    const dayUp = (row.dayPct ?? 0) >= 0;
+                    return (
+                      <TouchableOpacity
+                        key={row.key}
+                        style={styles.holdingRow}
+                        onPress={() => handleRowPress(row)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.holdingLeft}>
+                          <View style={styles.holdingDot} />
+                          <View>
+                            <Text style={styles.holdingSymbol}>
+                              {row.symbol}
+                            </Text>
+                            <Text style={styles.holdingQty}>
+                              {row.qty.toFixed(4)} units
+                            </Text>
+                          </View>
                         </View>
-                      </View>
-                      <View style={styles.holdingRight}>
-                        <View style={styles.holdingMeta}>
-                          <Text style={styles.holdingValue}>
-                            {fmtUSD(row.value)}
-                          </Text>
+                        <View style={styles.holdingRight}>
+                          <View style={styles.holdingMeta}>
+                            <Text style={styles.holdingValue}>
+                              {fmtINR(row.value)}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.holdingChange,
+                                dayUp ? styles.gain : styles.loss,
+                              ]}
+                            >
+                              {fmtPct(row.dayPct ?? 0)}
+                            </Text>
+                          </View>
                           <Text
                             style={[
-                              styles.holdingChange,
-                              dayUp ? styles.gain : styles.loss,
+                              styles.holdingPnl,
+                              up ? styles.gain : styles.loss,
                             ]}
                           >
-                            {fmtPct(row.dayPct ?? 0)}
+                            {fmtINR(row.pnl)} ({fmtPct(row.pnlPct)})
                           </Text>
                         </View>
-                        <Text
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </Card>
+            )}
+
+            {/* Short Positions */}
+            {activeTab === "shorts" && (
+              <Card style={styles.holdingsCard}>
+                <Text style={styles.holdingsTitle}>Open Short Positions</Text>
+                {shortLoading ? (
+                  <ActivityIndicator
+                    color={colors.indigo}
+                    style={{ marginVertical: spacing.lg }}
+                  />
+                ) : shortPositions.length === 0 ? (
+                  <Text style={styles.emptyText}>No open short positions.</Text>
+                ) : (
+                  shortPositions.map((pos) => {
+                    const sym = pos.stockSymbol.toUpperCase();
+                    const tick = bySymbol.get(sym);
+                    const currentPrice =
+                      tick?.stockPriceINR ??
+                      tick?.stockPrice ??
+                      commodityPrices[sym] ??
+                      pos.entryPrice;
+                    const unrealizedPL =
+                      (pos.entryPrice - currentPrice) * pos.quantity;
+                    const pnlPct = pos.entryPrice
+                      ? (unrealizedPL / (pos.entryPrice * pos.quantity)) * 100
+                      : 0;
+                    const up = unrealizedPL >= 0;
+                    const hasLive = !!(tick || commodityPrices[sym]);
+                    return (
+                      <View key={pos.id} style={styles.holdingRow}>
+                        <View style={styles.holdingLeft}>
+                          <View
+                            style={[
+                              styles.holdingDot,
+                              { backgroundColor: "#F59E0B" },
+                            ]}
+                          />
+                          <View>
+                            <Text style={styles.holdingSymbol}>
+                              {pos.stockSymbol}
+                            </Text>
+                            <Text style={styles.holdingQty}>
+                              {pos.quantity.toFixed(4)} units @ ₹
+                              {pos.entryPrice.toFixed(2)}
+                            </Text>
+                            <Text style={styles.holdingQty}>
+                              Now: ₹{currentPrice.toFixed(2)}
+                              {!hasLive ? " (no feed)" : ""}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.holdingPnl,
+                                {
+                                  color: up ? colors.emerald : colors.rose,
+                                  fontSize: 13,
+                                  fontWeight: "600",
+                                },
+                              ]}
+                            >
+                              P&L: {up ? "+" : ""}
+                              {fmtINR(unrealizedPL)} ({up ? "+" : ""}
+                              {pnlPct.toFixed(2)}%)
+                            </Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity
                           style={[
-                            styles.holdingPnl,
-                            up ? styles.gain : styles.loss,
+                            styles.coverBtn,
+                            coveringId === pos.id && styles.coverBtnLoading,
                           ]}
+                          onPress={() => handleCoverShort(pos)}
+                          disabled={coveringId === pos.id}
                         >
-                          {fmtUSD(row.pnl)} ({fmtPct(row.pnlPct)})
-                        </Text>
+                          <Text style={styles.coverBtnText}>
+                            {coveringId === pos.id ? "Covering…" : "Cover"}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </Card>
+                    );
+                  })
+                )}
+              </Card>
+            )}
           </ScrollView>
 
           <BuySellModal
@@ -541,5 +762,50 @@ const styles = StyleSheet.create({
   holdingPnl: {
     fontSize: 11,
     marginTop: 2,
+  },
+  // Segment tabs
+  segmentTabs: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  segmentTab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  segmentTabActive: {
+    borderColor: colors.indigo,
+    backgroundColor: `${colors.indigo}18`,
+  },
+  segmentTabText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: colors.textMuted,
+  },
+  segmentTabTextActive: {
+    color: colors.indigo,
+    fontWeight: "700",
+  },
+  // Cover button
+  coverBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: "#F59E0B",
+    backgroundColor: "rgba(245,158,11,0.1)",
+  },
+  coverBtnLoading: {
+    opacity: 0.5,
+  },
+  coverBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#F59E0B",
   },
 });

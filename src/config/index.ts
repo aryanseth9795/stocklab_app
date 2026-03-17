@@ -10,6 +10,9 @@ export const config = {
   serverUrl: IS_PRODUCTION ? PROD_URL : DEV_URL,
   apiUrl: `${IS_PRODUCTION ? PROD_URL : DEV_URL}/api/v1`,
 
+  // Direct third-party commodity SSE (bypasses relay)
+  commoditySSEUrl: "https://ssj-server-om8r.onrender.com/api/prices/stream",
+
   // Token keys for SecureStore
   ACCESS_TOKEN_KEY: "stocklabs_access_token",
   REFRESH_TOKEN_KEY: "stocklabs_refresh_token",

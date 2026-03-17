@@ -13,22 +13,42 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, borderRadius, spacing, typography, shadows } from "../theme";
-import { Stock, TradeRequestBody } from "../types";
+import {
+  Stock,
+  TradeRequestBody,
+  ShortSellRequest,
+  ShortCoverRequest,
+} from "../types";
 import { Button, Input } from "./ui";
-import { executeOrder } from "../api";
+import { executeOrder, executeShortSell } from "../api";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+
+// Action: buy | sell | short
+type TradeAction = "buy" | "sell" | "short";
+type InputMode = "amount" | "quantity";
 
 interface BuySellModalProps {
   visible: boolean;
   onClose: () => void;
   stock: Stock | null;
   onSuccess?: () => void;
-  defaultAction?: "buy" | "sell";
+  defaultAction?: TradeAction;
   holdingQuantity?: number;
+  // For commodity mode: prices are in ₹, use commodity API
+  assetType?: "crypto" | "commodity";
+  onCommodityOrder?: (payload: {
+    symbol: string;
+    quantity: number;
+    rate: number;
+    type: "buy" | "sell" | "short_sell";
+  }) => Promise<{ success: boolean; message: string }>;
+  // For covering a short position directly
+  shortPositionId?: string;
+  onShortCover?: (
+    payload: ShortCoverRequest,
+  ) => Promise<{ success: boolean; message: string; profitLoss?: number }>;
 }
-
-type Mode = "amount" | "quantity";
 
 export default function BuySellModal({
   visible,
@@ -37,70 +57,69 @@ export default function BuySellModal({
   onSuccess,
   defaultAction = "buy",
   holdingQuantity = 0,
+  assetType = "crypto",
+  onCommodityOrder,
+  shortPositionId,
+  onShortCover,
 }: BuySellModalProps) {
   const { user, refreshUser } = useAuth();
   const { showToast, showAlert, showOrderSuccess } = useToast();
-  const [isBuy, setIsBuy] = useState(true);
-  const [mode, setMode] = useState<Mode>("amount");
+  const [action, setAction] = useState<TradeAction>(defaultAction);
+  const [mode, setMode] = useState<InputMode>("amount");
   const [amountStr, setAmountStr] = useState("");
   const [qtyStr, setQtyStr] = useState("");
   const [lockedPrice, setLockedPrice] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
+  const [isIntraday, setIsIntraday] = useState(false);
 
-  // Track previous visibility to detect open transition
   const wasVisible = useRef(false);
-
-  // Keyboard offset animation
   const keyboardOffset = useRef(new Animated.Value(0)).current;
 
-  // Keyboard show/hide handlers
+  const isCommodity = assetType === "commodity";
+  const currencySymbol = "₹";
+
   useEffect(() => {
     const showEvent =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent =
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
 
-    const keyboardShowListener = Keyboard.addListener(showEvent, (e) => {
+    const showListener = Keyboard.addListener(showEvent, (e) => {
       Animated.timing(keyboardOffset, {
         toValue: -e.endCoordinates.height * 0.5,
         duration: Platform.OS === "ios" ? 250 : 100,
         useNativeDriver: true,
       }).start();
     });
-
-    const keyboardHideListener = Keyboard.addListener(hideEvent, () => {
+    const hideListener = Keyboard.addListener(hideEvent, () => {
       Animated.timing(keyboardOffset, {
         toValue: 0,
         duration: Platform.OS === "ios" ? 250 : 100,
         useNativeDriver: true,
       }).start();
     });
-
     return () => {
-      keyboardShowListener.remove();
-      keyboardHideListener.remove();
+      showListener.remove();
+      hideListener.remove();
     };
   }, [keyboardOffset]);
 
-  // Reset state only when modal OPENS (not on stock updates)
   useEffect(() => {
-    // Only reset when transitioning from closed to open
     if (visible && !wasVisible.current && stock) {
-      setIsBuy(defaultAction === "buy");
+      setAction(defaultAction);
       setMode("amount");
       setAmountStr("");
       setQtyStr("");
-      setLockedPrice(stock.stockPrice);
-      // Refresh user data to ensure wallet balance is current
+      setIsIntraday(false);
+      setLockedPrice(stock.stockPriceINR ?? stock.stockPrice);
       refreshUser();
-      // Reset keyboard offset
       keyboardOffset.setValue(0);
     }
     wasVisible.current = visible;
-  }, [visible, stock, refreshUser, defaultAction, keyboardOffset]);
+  }, [visible, stock, refreshUser, defaultAction, keyboardOffset, isCommodity]);
 
-  const price = lockedPrice || stock?.stockPrice || 0;
-  const walletUSD = user?.balance || 0;
+  const price = lockedPrice || (stock?.stockPriceINR ?? stock?.stockPrice ?? 0);
+  const walletBalance = user?.balance || 0;
 
   const amount = useMemo(() => {
     const a = parseFloat(amountStr);
@@ -126,9 +145,13 @@ export default function BuySellModal({
         : 0;
   }, [amountStr, qtyStr, mode, price]);
 
-  const insufficientFunds = isBuy && amount > walletUSD;
-  const insufficientHoldings = !isBuy && qty > holdingQuantity;
-  const noHoldings = !isBuy && holdingQuantity <= 0;
+  const isBuy = action === "buy";
+  const isShort = action === "short";
+
+  const insufficientFunds = (isBuy || isShort) && amount > walletBalance;
+  const insufficientHoldings = action === "sell" && qty > holdingQuantity;
+  const noHoldings = action === "sell" && holdingQuantity <= 0;
+
   const disableCta =
     !stock ||
     !user?.id ||
@@ -140,7 +163,6 @@ export default function BuySellModal({
     noHoldings ||
     submitting;
 
-  // Handler for "Sell All" button
   const handleSellAll = () => {
     if (holdingQuantity > 0) {
       setMode("quantity");
@@ -152,36 +174,103 @@ export default function BuySellModal({
   const handleSubmit = async () => {
     if (disableCta || !stock || !user) return;
 
-    const payload: TradeRequestBody = {
-      userId: user.id,
-      stockName: stock.stockName,
-      quantity: Number(qty.toFixed(6)),
-      rate: Number(price.toFixed(4)),
-      type: isBuy ? "buy" : "sell",
-    };
-
     setSubmitting(true);
     try {
-      const result = await executeOrder(payload);
-      if (result.success) {
-        // Show animated success modal
-        showOrderSuccess({
-          type: isBuy ? "buy" : "sell",
-          title: isBuy ? "Order Placed!" : "Position Closed!",
-          subtitle: `${isBuy ? "Bought" : "Sold"} ${qty.toFixed(4)} ${stock.stocksymbol}`,
-          details: `Executed @ $${price.toFixed(2)}`,
+      let result: { success: boolean; message: string; profitLoss?: number };
+
+      if (isShort) {
+        // Short sell
+        const payload: ShortSellRequest = {
+          stockName: stock.stockName,
+          stockSymbol: stock.stocksymbol,
+          quantity: Number(qty.toFixed(6)),
+          rate: Number(price.toFixed(4)),
+          assetType,
+        };
+        if (isCommodity && onCommodityOrder) {
+          result = await onCommodityOrder({
+            symbol: stock.stocksymbol,
+            quantity: Number(qty.toFixed(6)),
+            rate: Number(price.toFixed(4)),
+            type: "short_sell",
+          });
+        } else {
+          result = await executeShortSell(payload);
+        }
+        if (result.success) {
+          showOrderSuccess({
+            type: "sell",
+            title: "Short Opened!",
+            subtitle: `Shorted ${qty.toFixed(4)} ${stock.stocksymbol}`,
+            details: `Entry @ ${currencySymbol}${price.toFixed(2)} • Auto-cut at midnight`,
+          });
+          await refreshUser();
+          onSuccess?.();
+          onClose();
+        } else {
+          showAlert({
+            title: "Order Failed",
+            message: result.message,
+            type: "error",
+            confirmText: "OK",
+          });
+        }
+      } else if (isCommodity && onCommodityOrder) {
+        // Commodity buy/sell
+        result = await onCommodityOrder({
+          symbol: stock.stocksymbol,
+          quantity: Number(qty.toFixed(6)),
+          rate: Number(price.toFixed(4)),
+          type: action as "buy" | "sell",
         });
-        // Refresh user data to update wallet balance
-        await refreshUser();
-        onSuccess?.();
-        onClose();
+        if (result.success) {
+          showOrderSuccess({
+            type: action as "buy" | "sell",
+            title: isBuy ? "Order Placed!" : "Position Closed!",
+            subtitle: `${isBuy ? "Bought" : "Sold"} ${qty.toFixed(4)} ${stock.stocksymbol}`,
+            details: `Executed @ ${currencySymbol}${price.toFixed(2)}`,
+          });
+          await refreshUser();
+          onSuccess?.();
+          onClose();
+        } else {
+          showAlert({
+            title: "Order Failed",
+            message: result.message,
+            type: "error",
+            confirmText: "OK",
+          });
+        }
       } else {
-        showAlert({
-          title: "Order Failed",
-          message: result.message,
-          type: "error",
-          confirmText: "OK",
-        });
+        // Regular crypto buy/sell (with optional intraday mode)
+        const orderMode = isIntraday ? "intraday" : "delivery";
+        const payload: TradeRequestBody = {
+          userId: user.id,
+          stockName: stock.stockName,
+          quantity: Number(qty.toFixed(6)),
+          rate: Number(price.toFixed(4)),
+          type: action as "buy" | "sell",
+          orderMode,
+        };
+        result = await executeOrder(payload);
+        if (result.success) {
+          showOrderSuccess({
+            type: action as "buy" | "sell",
+            title: isBuy ? "Order Placed!" : "Position Closed!",
+            subtitle: `${isBuy ? "Bought" : "Sold"} ${qty.toFixed(4)} ${stock.stocksymbol}`,
+            details: `Executed @ ${currencySymbol}${price.toFixed(2)}${isIntraday ? " • Intraday" : ""}`,
+          });
+          await refreshUser();
+          onSuccess?.();
+          onClose();
+        } else {
+          showAlert({
+            title: "Order Failed",
+            message: result.message,
+            type: "error",
+            confirmText: "OK",
+          });
+        }
       }
     } catch (error: any) {
       showAlert({
@@ -197,6 +286,15 @@ export default function BuySellModal({
 
   if (!stock) return null;
 
+  const actionColor =
+    action === "buy"
+      ? colors.emerald
+      : action === "sell"
+        ? colors.rose
+        : "#F59E0B";
+  const actionLabel =
+    action === "buy" ? "BUY" : action === "sell" ? "SELL" : "SHORT";
+
   return (
     <Modal
       visible={visible}
@@ -210,7 +308,6 @@ export default function BuySellModal({
           activeOpacity={1}
           onPress={onClose}
         />
-
         <Animated.View
           style={[
             styles.container,
@@ -227,22 +324,21 @@ export default function BuySellModal({
                 <Text style={styles.title}>Place Order</Text>
                 <Text style={styles.subtitle}>
                   {stock.stockName} ({stock.stocksymbol})
+                  {isCommodity ? " • MCX" : ""}
                 </Text>
               </View>
               <View style={styles.headerRight}>
                 <View
                   style={[
                     styles.badge,
-                    isBuy ? styles.badgeBuy : styles.badgeSell,
+                    {
+                      backgroundColor: `${actionColor}18`,
+                      borderColor: `${actionColor}33`,
+                    },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.badgeText,
-                      isBuy ? styles.badgeTextBuy : styles.badgeTextSell,
-                    ]}
-                  >
-                    {isBuy ? "BUY" : "SELL"}
+                  <Text style={[styles.badgeText, { color: actionColor }]}>
+                    {actionLabel}
                   </Text>
                 </View>
                 <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -255,56 +351,112 @@ export default function BuySellModal({
             <View style={styles.infoCard}>
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Current Price</Text>
-                <Text style={styles.infoValue}>${price.toFixed(2)}</Text>
+                <Text style={styles.infoValue}>
+                  {currencySymbol}
+                  {price.toFixed(2)}
+                </Text>
               </View>
-              {isBuy && (
+              {(isBuy || isShort) && (
                 <>
                   <View style={styles.divider} />
                   <View style={styles.infoRow}>
                     <Text style={styles.infoLabel}>Wallet Balance</Text>
                     <Text style={styles.infoValue}>
-                      ${walletUSD.toFixed(2)}
+                      ₹{walletBalance.toFixed(2)}
+                    </Text>
+                  </View>
+                </>
+              )}
+              {isShort && (
+                <>
+                  <View style={styles.divider} />
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: "#F59E0B" }]}>
+                      ⚠️ Auto-cut at midnight IST
                     </Text>
                   </View>
                 </>
               )}
             </View>
 
-            {/* Buy/Sell Toggle */}
-            <View style={styles.toggleCard}>
-              <View style={styles.toggleLeft}>
-                <View
-                  style={[styles.dot, isBuy ? styles.dotBuy : styles.dotSell]}
-                />
-                <Text style={styles.toggleLabel}>
-                  {isBuy ? "Buying Action" : "Selling Action"}
-                </Text>
-              </View>
-              <View style={styles.toggleRight}>
-                <Text
-                  style={[
-                    styles.toggleOption,
-                    !isBuy && styles.toggleOptionActive,
-                  ]}
-                >
-                  Sell
-                </Text>
-                <Switch
-                  value={isBuy}
-                  onValueChange={setIsBuy}
-                  trackColor={{ false: colors.rose, true: colors.emerald }}
-                  thumbColor="#fff"
-                />
-                <Text
-                  style={[
-                    styles.toggleOption,
-                    isBuy && styles.toggleOptionActive,
-                  ]}
-                >
-                  Buy
-                </Text>
-              </View>
+            {/* Action Tab Switcher */}
+            <View style={styles.actionTabs}>
+              {(["buy", "sell", "short"] as TradeAction[]).map((act) => {
+                const col =
+                  act === "buy"
+                    ? colors.emerald
+                    : act === "sell"
+                      ? colors.rose
+                      : "#F59E0B";
+                return (
+                  <TouchableOpacity
+                    key={act}
+                    style={[
+                      styles.actionTab,
+                      action === act && {
+                        borderColor: col,
+                        backgroundColor: `${col}18`,
+                      },
+                    ]}
+                    onPress={() => setAction(act)}
+                  >
+                    <Text
+                      style={[
+                        styles.actionTabText,
+                        action === act && { color: col, fontWeight: "700" },
+                      ]}
+                    >
+                      {act === "buy"
+                        ? "Buy"
+                        : act === "sell"
+                          ? "Sell"
+                          : "Short"}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
+
+            {/* Intraday Toggle (crypto delivery only) */}
+            {!isCommodity && action !== "short" && (
+              <View style={styles.toggleCard}>
+                <View style={styles.toggleLeft}>
+                  <View
+                    style={[
+                      styles.dot,
+                      isIntraday ? styles.dotIntraday : styles.dotDelivery,
+                    ]}
+                  />
+                  <Text style={styles.toggleLabel}>
+                    {isIntraday ? "Intraday" : "Delivery"}
+                  </Text>
+                </View>
+                <View style={styles.toggleRight}>
+                  <Text
+                    style={[
+                      styles.toggleOption,
+                      !isIntraday && styles.toggleOptionActive,
+                    ]}
+                  >
+                    Delivery
+                  </Text>
+                  <Switch
+                    value={isIntraday}
+                    onValueChange={setIsIntraday}
+                    trackColor={{ false: colors.border, true: "#6366F1" }}
+                    thumbColor="#fff"
+                  />
+                  <Text
+                    style={[
+                      styles.toggleOption,
+                      isIntraday && styles.toggleOptionActive,
+                    ]}
+                  >
+                    Intraday
+                  </Text>
+                </View>
+              </View>
+            )}
 
             {/* Mode Toggle */}
             <View style={styles.modeToggle}>
@@ -324,7 +476,7 @@ export default function BuySellModal({
                     mode === "amount" && styles.modeBtnTextActive,
                   ]}
                 >
-                  Amount (USD)
+                  Amount ({isCommodity ? "₹" : "₹"})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -353,7 +505,7 @@ export default function BuySellModal({
               {mode === "amount" ? (
                 <>
                   <Input
-                    label="Total Amount (USD)"
+                    label={`Total Amount (${currencySymbol})`}
                     value={amountStr}
                     onChangeText={setAmountStr}
                     placeholder="0.00"
@@ -370,7 +522,7 @@ export default function BuySellModal({
               ) : (
                 <>
                   <Input
-                    label="Quantity (shares)"
+                    label="Quantity (units)"
                     value={qtyStr}
                     onChangeText={setQtyStr}
                     placeholder="0.0000"
@@ -380,7 +532,8 @@ export default function BuySellModal({
                   <Text style={styles.estimate}>
                     Est. Total:{" "}
                     <Text style={styles.estimateValue}>
-                      ${amount > 0 ? amount.toFixed(2) : "0.00"}
+                      {currencySymbol}
+                      {amount > 0 ? amount.toFixed(2) : "0.00"}
                     </Text>
                   </Text>
                 </>
@@ -388,7 +541,7 @@ export default function BuySellModal({
             </View>
 
             {/* Sell All Button */}
-            {!isBuy && holdingQuantity > 0 && (
+            {action === "sell" && holdingQuantity > 0 && (
               <TouchableOpacity
                 style={styles.sellAllBtn}
                 onPress={handleSellAll}
@@ -400,28 +553,37 @@ export default function BuySellModal({
             )}
 
             {/* Validation Feedback */}
-            {isBuy && insufficientFunds && (
+            {(isBuy || isShort) && insufficientFunds && (
               <View style={styles.errorBanner}>
                 <Ionicons name="alert-circle" size={20} color={colors.error} />
                 <Text style={styles.errorText}>
-                  Insufficient funds in wallet
+                  Insufficient balance in wallet
                 </Text>
               </View>
             )}
-
-            {!isBuy && noHoldings && (
+            {action === "sell" && noHoldings && (
               <View style={styles.errorBanner}>
                 <Ionicons name="alert-circle" size={20} color={colors.error} />
-                <Text style={styles.errorText}>You don't own this stock</Text>
+                <Text style={styles.errorText}>You don't own this asset</Text>
               </View>
             )}
-
-            {!isBuy && !noHoldings && insufficientHoldings && (
+            {action === "sell" && !noHoldings && insufficientHoldings && (
               <View style={styles.errorBanner}>
                 <Ionicons name="alert-circle" size={20} color={colors.error} />
                 <Text style={styles.errorText}>
                   Quantity exceeds holdings ({holdingQuantity.toFixed(4)}{" "}
                   available)
+                </Text>
+              </View>
+            )}
+
+            {/* Short Sell Info Banner */}
+            {isShort && (
+              <View style={styles.shortInfoBanner}>
+                <Ionicons name="information-circle" size={20} color="#F59E0B" />
+                <Text style={styles.shortInfoText}>
+                  Profit when price falls. Position auto-closes at midnight if
+                  not covered.
                 </Text>
               </View>
             )}
@@ -438,15 +600,26 @@ export default function BuySellModal({
                 title={
                   submitting
                     ? "Submitting…"
-                    : isBuy
+                    : action === "buy"
                       ? `Buy ${stock.stocksymbol}`
-                      : `Sell ${stock.stocksymbol}`
+                      : action === "sell"
+                        ? `Sell ${stock.stocksymbol}`
+                        : `Short ${stock.stocksymbol}`
                 }
-                variant={isBuy ? "success" : "danger"}
+                variant={
+                  action === "buy"
+                    ? "success"
+                    : action === "sell"
+                      ? "danger"
+                      : ("warning" as any)
+                }
                 onPress={handleSubmit}
                 disabled={disableCta}
                 loading={submitting}
-                style={styles.submitBtn}
+                style={[
+                  styles.submitBtn,
+                  action === "short" && styles.shortBtn,
+                ]}
                 fullWidth={false}
               />
             </View>
@@ -458,10 +631,7 @@ export default function BuySellModal({
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
+  overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.8)",
@@ -472,7 +642,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: borderRadius.xxl,
     padding: spacing.xl,
     paddingBottom: spacing.huge,
-    maxHeight: "90%",
+    maxHeight: "92%",
     borderTopWidth: 1,
     borderTopColor: colors.borderHighlight,
     ...shadows.glow(colors.background),
@@ -483,51 +653,21 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     marginBottom: spacing.lg,
   },
-  headerRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  title: {
-    ...typography.h2,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.caption,
-    color: colors.textMuted,
-    marginTop: 4,
-  },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  title: { ...typography.h2, color: colors.textPrimary },
+  subtitle: { ...typography.caption, color: colors.textMuted, marginTop: 4 },
   badge: {
     paddingHorizontal: spacing.md,
     paddingVertical: 4,
     borderRadius: borderRadius.full,
     borderWidth: 1,
   },
-  badgeBuy: {
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
-    borderColor: "rgba(16, 185, 129, 0.2)",
-  },
-  badgeSell: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    borderColor: "rgba(239, 68, 68, 0.2)",
-  },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  badgeTextBuy: {
-    color: colors.success,
-  },
-  badgeTextSell: {
-    color: colors.error,
-  },
+  badgeText: { fontSize: 12, fontWeight: "700" },
   closeBtn: {
     padding: spacing.xs,
     backgroundColor: colors.surface,
     borderRadius: borderRadius.full,
   },
-
-  // Info Card
   infoCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.lg,
@@ -546,17 +686,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     marginVertical: spacing.md,
   },
-  infoLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  infoValue: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.textPrimary,
-  },
+  infoLabel: { ...typography.caption, color: colors.textSecondary },
+  infoValue: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
 
-  // Toggle
+  // Action Tabs (Buy / Sell / Short)
+  actionTabs: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  actionTab: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  actionTabText: { fontSize: 13, fontWeight: "500", color: colors.textMuted },
+
+  // Intraday Toggle
   toggleCard: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -568,41 +718,20 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginBottom: spacing.lg,
   },
-  toggleLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  dotBuy: { backgroundColor: colors.success },
-  dotSell: { backgroundColor: colors.error },
-
-  toggleLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.textPrimary,
-  },
-  toggleRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
+  toggleLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  dotDelivery: { backgroundColor: colors.emerald },
+  dotIntraday: { backgroundColor: "#6366F1" },
+  toggleLabel: { fontSize: 14, fontWeight: "500", color: colors.textPrimary },
+  toggleRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   toggleOption: {
     fontSize: 12,
     color: colors.textMuted,
-    width: 30,
+    width: 50,
     textAlign: "center",
   },
-  toggleOptionActive: {
-    color: colors.textPrimary,
-    fontWeight: "600",
-  },
+  toggleOptionActive: { color: colors.textPrimary, fontWeight: "600" },
 
-  // Mode Toggle
   modeToggle: {
     flexDirection: "row",
     backgroundColor: colors.surface,
@@ -616,31 +745,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderRadius: borderRadius.md,
   },
-  modeBtnActive: {
-    backgroundColor: colors.surfaceLight,
-  },
-  modeBtnText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    fontWeight: "500",
-  },
-  modeBtnTextActive: {
-    color: colors.textPrimary,
-    fontWeight: "600",
-  },
+  modeBtnActive: { backgroundColor: colors.surfaceLight },
+  modeBtnText: { fontSize: 13, color: colors.textMuted, fontWeight: "500" },
+  modeBtnTextActive: { color: colors.textPrimary, fontWeight: "600" },
 
-  inputSection: {
-    marginBottom: spacing.lg,
-  },
+  inputSection: { marginBottom: spacing.lg },
   estimate: {
     ...typography.caption,
     textAlign: "right",
     marginTop: spacing.xs,
   },
-  estimateValue: {
-    color: colors.textPrimary,
-    fontWeight: "600",
-  },
+  estimateValue: { color: colors.textPrimary, fontWeight: "600" },
 
   errorBanner: {
     flexDirection: "row",
@@ -651,11 +766,20 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     marginBottom: spacing.lg,
   },
-  errorText: {
-    color: colors.error,
-    fontSize: 13,
-    fontWeight: "500",
+  errorText: { color: colors.error, fontSize: 13, fontWeight: "500", flex: 1 },
+
+  shortInfoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: "rgba(245, 158, 11, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.lg,
   },
+  shortInfoText: { color: "#F59E0B", fontSize: 12, flex: 1, lineHeight: 18 },
 
   actions: {
     flexDirection: "row",
@@ -663,14 +787,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     justifyContent: "space-around",
   },
-  cancelBtn: {
-    flex: 1,
-    width: 150,
-  },
-  submitBtn: {
-    flex: 1,
-    width: 150,
-  },
+  cancelBtn: { flex: 1, width: 150 },
+  submitBtn: { flex: 1, width: 150 },
+  shortBtn: { backgroundColor: "#F59E0B" },
+
   sellAllBtn: {
     backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderWidth: 1,
@@ -680,9 +800,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: spacing.lg,
   },
-  sellAllText: {
-    color: colors.error,
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  sellAllText: { color: colors.error, fontSize: 14, fontWeight: "600" },
 });

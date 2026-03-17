@@ -94,6 +94,68 @@ export interface TradeRequestBody {
   quantity: number;
   rate: number;
   type: "buy" | "sell";
+  orderMode?: "delivery" | "intraday" | "short_sell" | "short_cover";
+}
+
+// Short position
+export interface ShortPosition {
+  id: string;
+  userId: string;
+  assetType: "crypto" | "commodity";
+  stockSymbol: string;
+  stockName: string;
+  entryPrice: number;
+  quantity: number;
+  totalValue: number;
+  status: "open" | "closed" | "auto_cut";
+  exitPrice?: number;
+  profitLoss?: number;
+  closedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShortSellRequest {
+  stockName: string;
+  stockSymbol: string;
+  quantity: number;
+  rate: number;
+  assetType: "crypto" | "commodity";
+}
+
+export interface ShortCoverRequest {
+  shortPositionId: string;
+  rate: number;
+}
+
+// Commodity
+export interface Commodity {
+  symbol: string; // "GOLD" | "SILVER" | "CRUDEOIL" | "COPPER"
+  name: string;
+  price: number; // in ₹
+  change: number;
+  changePercentage: number;
+  expDate: string;
+  ts: string;
+}
+
+export interface CommodityPortfolioItem {
+  id: string;
+  userId: string;
+  symbol: string;
+  name: string;
+  price: number;
+  quantity: number;
+  total: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CommodityOrderRequest {
+  symbol: string;
+  quantity: number;
+  rate: number;
+  type: "buy" | "sell" | "short_sell";
 }
 
 // Auth tokens

@@ -41,14 +41,18 @@ function StockCard({ stock, onPress, index = 0 }: StockCardProps) {
   }));
 
   const flashStyle = useAnimatedStyle(() => ({
-    backgroundColor: interpolateColor(
+    color: interpolateColor(
       flash.value,
       [0, 1],
-      [
-        "transparent",
-        isUp ? "rgba(52,211,153,0.15)" : "rgba(251,113,133,0.15)",
-      ],
+      [isUp ? colors.emerald : colors.rose, isUp ? "#ffffff" : "#ffffff"],
     ),
+    textShadowColor: interpolateColor(
+      flash.value,
+      [0, 1],
+      ["transparent", isUp ? "rgba(52,211,153,0.8)" : "rgba(251,113,133,0.8)"],
+    ),
+    textShadowRadius: flash.value * 6,
+    textShadowOffset: { width: 0, height: 0 },
   }));
 
   const handlePressIn = () => {
@@ -80,8 +84,6 @@ function StockCard({ stock, onPress, index = 0 }: StockCardProps) {
             end={{ x: 1, y: 1 }}
             style={styles.card}
           >
-            <Animated.View style={[StyleSheet.absoluteFill, flashStyle]} />
-
             {/* Top Glow/Border Accent */}
             <View
               style={[
@@ -115,21 +117,18 @@ function StockCard({ stock, onPress, index = 0 }: StockCardProps) {
             {/* Price & Change */}
             <View style={styles.priceRow}>
               <View>
-                <Text style={styles.price}>${stock.stockPrice.toFixed(2)}</Text>
+                <Text style={styles.price}>
+                  ₹{stock.stockPriceINR.toFixed(2)}
+                </Text>
                 <Text style={styles.label}>Current Price</Text>
               </View>
 
               <View style={styles.changeContainer}>
-                <Text
-                  style={[
-                    styles.changeValue,
-                    { color: isUp ? colors.emerald : colors.rose },
-                  ]}
-                >
+                <Animated.Text style={[styles.changeValue, flashStyle]}>
                   {isUp ? "+" : ""}
-                  {stock.stockChange.toFixed(2)}
-                </Text>
-                <Text style={styles.label}>Change (USD)</Text>
+                  {stock.stockChangeINR.toFixed(2)}
+                </Animated.Text>
+                <Text style={styles.label}>Change (₹)</Text>
               </View>
             </View>
           </LinearGradient>

@@ -1,19 +1,10 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withRepeat,
-  withSequence,
-  withTiming,
-  FadeIn,
-  Easing,
-} from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, borderRadius, spacing, shadows } from "../theme";
 import { Button } from "./ui";
+import { formatINR } from "../utils/formatINR";
 
 interface UserInfoProps {
   name: string;
@@ -32,25 +23,9 @@ export default function UserInfo({
   isAuthed,
   onLoginPress,
 }: UserInfoProps) {
-  const scale = useSharedValue(0.95);
-  const pulseScale = useSharedValue(1);
-
-  // Entrance animation
-  useEffect(() => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 100 });
-  }, [scale]);
-
-  const scaleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulseScale.value }],
-  }));
-
   if (!isAuthed) {
     return (
-      <Animated.View style={scaleStyle}>
+      <View>
         <LinearGradient
           colors={colors.gradients.card}
           style={styles.guestCard}
@@ -76,7 +51,7 @@ export default function UserInfo({
             onPress={onLoginPress}
           />
         </LinearGradient>
-      </Animated.View>
+      </View>
     );
   }
 
@@ -86,7 +61,7 @@ export default function UserInfo({
   const isProfit = pnl >= 0;
 
   return (
-    <Animated.View style={scaleStyle}>
+    <View>
       <LinearGradient
         colors={["#312E81", "#4338CA", "#1E1B4B"]}
         start={{ x: 0, y: 0 }}
@@ -117,11 +92,11 @@ export default function UserInfo({
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            $
-            {totalValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            {formatINR(totalValue).compact}
           </Text>
+          <Text style={styles.balanceExact}>{formatINR(totalValue).exact}</Text>
           {investedAmount > 0 && (
-            <Animated.View
+            <View
               style={[
                 styles.pnlBadge,
                 {
@@ -129,7 +104,6 @@ export default function UserInfo({
                     ? colors.emeraldLight
                     : colors.roseLight,
                 },
-                pulseStyle,
               ]}
             >
               <Ionicons
@@ -144,9 +118,9 @@ export default function UserInfo({
                 ]}
               >
                 {isProfit ? "+" : ""}
-                {pnl.toFixed(2)} ({pnlPercent.toFixed(1)}%)
+                {formatINR(pnl).compact} ({pnlPercent.toFixed(1)}%)
               </Text>
-            </Animated.View>
+            </View>
           )}
         </View>
 
@@ -154,19 +128,25 @@ export default function UserInfo({
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Available Cash</Text>
             <Text style={styles.statValue}>
-              ${walletAmount?.toLocaleString()}
+              {formatINR(walletAmount || 0).compact}
+            </Text>
+            <Text style={styles.statExact}>
+              {formatINR(walletAmount || 0).exact}
             </Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.statItem}>
             <Text style={styles.statLabel}>Invested</Text>
             <Text style={styles.statValue}>
-              ${portfolioAmount?.toLocaleString()}
+              {formatINR(portfolioAmount || 0).compact}
+            </Text>
+            <Text style={styles.statExact}>
+              {formatINR(portfolioAmount || 0).exact}
             </Text>
           </View>
         </View>
       </LinearGradient>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -241,6 +221,13 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     textAlign: "center",
   },
+  balanceExact: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.45)",
+    textAlign: "center",
+    marginTop: 1,
+    marginBottom: 2,
+  },
   statsRow: {
     flexDirection: "row",
     backgroundColor: "rgba(0,0,0,0.2)",
@@ -264,6 +251,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#FFF",
+  },
+  statExact: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: 1,
   },
   pnlBadge: {
     flexDirection: "row",

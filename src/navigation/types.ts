@@ -4,6 +4,7 @@ import { Stock } from "../types";
 // Main Tab Navigator
 export type MainTabParamList = {
   Home: undefined;
+  Commodities: undefined;
   Portfolio: undefined;
   History: undefined;
   Account: undefined;
@@ -14,7 +15,9 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList>;
   Login: undefined;
   Signup: undefined;
+  ForgotPassword: undefined;
   StockDetail: { stock: Stock };
+  CommodityDetail: { commodity: import("../types").Commodity };
   EditProfile: undefined;
   Dashboard: undefined;
 };

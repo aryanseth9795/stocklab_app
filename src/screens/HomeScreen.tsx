@@ -156,7 +156,7 @@ export default function HomeScreen() {
     for (const p of positions) {
       const symbol = (p.stockSymbol || p.stockName).toUpperCase();
       const tick = tickMap.get(symbol);
-      const livePrice = tick?.stockPrice ?? p.stockPrice;
+      const livePrice = tick?.stockPriceINR ?? tick?.stockPrice ?? p.stockPrice;
       totalValue += livePrice * p.stockQuantity;
     }
     return totalValue;

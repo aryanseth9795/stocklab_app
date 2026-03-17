@@ -7,6 +7,7 @@ import { colors } from "../theme";
 
 // Screens
 import HomeScreen from "../screens/HomeScreen";
+import CommodityListScreen from "../screens/CommodityListScreen";
 import PortfolioScreen from "../screens/PortfolioScreen";
 import HistoryScreen from "../screens/HistoryScreen";
 import AccountScreen from "../screens/AccountScreen";
@@ -19,6 +20,9 @@ const getTabIcon = (routeName: string, focused: boolean) => {
   switch (routeName) {
     case "Home":
       iconName = focused ? "home" : "home-outline";
+      break;
+    case "Commodities":
+      iconName = focused ? "diamond" : "diamond-outline";
       break;
     case "Portfolio":
       iconName = focused ? "briefcase" : "briefcase-outline";
@@ -64,6 +68,7 @@ export default function MainTabNavigator() {
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Commodities" component={CommodityListScreen} />
       <Tab.Screen name="Portfolio" component={PortfolioScreen} />
       <Tab.Screen name="History" component={HistoryScreen} />
       <Tab.Screen name="Account" component={AccountScreen} />

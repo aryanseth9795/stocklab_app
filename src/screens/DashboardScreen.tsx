@@ -15,6 +15,7 @@ import { colors, spacing, borderRadius, typography } from "../theme";
 import { useAuth } from "../context/AuthContext";
 import { getProfitLoss } from "../api";
 import { Card, AuthGuard } from "../components";
+import { formatINR } from "../utils/formatINR";
 
 type TimeFilter = 1 | 7 | 30 | 365;
 
@@ -140,20 +141,29 @@ export default function DashboardScreen() {
                   (stats?.realizedPL ?? 0) >= 0 ? styles.profit : styles.loss,
                 ]}
               >
-                {(stats?.realizedPL ?? 0) >= 0 ? "+" : ""}$
-                {(stats?.realizedPL ?? 0).toFixed(2)}
+                {(stats?.realizedPL ?? 0) >= 0 ? "+" : ""}
+                {formatINR(stats?.realizedPL ?? 0).compact}
+              </Text>
+              <Text style={styles.plExact}>
+                {formatINR(stats?.realizedPL ?? 0).exact}
               </Text>
               <View style={styles.plDetails}>
                 <View style={styles.plDetailItem}>
                   <Text style={styles.plDetailLabel}>Wallet</Text>
                   <Text style={styles.plDetailValue}>
-                    ${user?.balance?.toFixed(2) || "0.00"}
+                    {formatINR(user?.balance ?? 0).compact}
+                  </Text>
+                  <Text style={styles.plDetailExact}>
+                    {formatINR(user?.balance ?? 0).exact}
                   </Text>
                 </View>
                 <View style={styles.plDetailItem}>
                   <Text style={styles.plDetailLabel}>Invested</Text>
                   <Text style={styles.plDetailValue}>
-                    ${user?.totalInvested?.toFixed(2) || "0.00"}
+                    {formatINR(user?.totalInvested ?? 0).compact}
+                  </Text>
+                  <Text style={styles.plDetailExact}>
+                    {formatINR(user?.totalInvested ?? 0).exact}
                   </Text>
                 </View>
               </View>
@@ -187,7 +197,7 @@ export default function DashboardScreen() {
               <View style={styles.statCard}>
                 <Ionicons name="calculator" size={20} color={colors.warning} />
                 <Text style={styles.statValue}>
-                  ${(stats?.avgTradeSize ?? 0).toFixed(0)}
+                  {formatINR(stats?.avgTradeSize ?? 0).compact}
                 </Text>
                 <Text style={styles.statLabel}>Avg Trade</Text>
               </View>
@@ -206,7 +216,10 @@ export default function DashboardScreen() {
                   />
                   <Text style={styles.volumeLabel}>Buy Volume</Text>
                   <Text style={styles.volumeValue}>
-                    ${(stats?.totalBuyAmount ?? 0).toFixed(2)}
+                    {formatINR(stats?.totalBuyAmount ?? 0).compact}
+                  </Text>
+                  <Text style={styles.volumeExact}>
+                    {formatINR(stats?.totalBuyAmount ?? 0).exact}
                   </Text>
                 </View>
                 <View style={styles.volumeItem}>
@@ -215,7 +228,10 @@ export default function DashboardScreen() {
                   />
                   <Text style={styles.volumeLabel}>Sell Volume</Text>
                   <Text style={styles.volumeValue}>
-                    ${(stats?.totalSellAmount ?? 0).toFixed(2)}
+                    {formatINR(stats?.totalSellAmount ?? 0).compact}
+                  </Text>
+                  <Text style={styles.volumeExact}>
+                    {formatINR(stats?.totalSellAmount ?? 0).exact}
                   </Text>
                 </View>
               </View>
@@ -239,8 +255,8 @@ export default function DashboardScreen() {
                           item.realizedPL >= 0 ? styles.profit : styles.loss,
                         ]}
                       >
-                        {item.realizedPL >= 0 ? "+" : ""}$
-                        {item.realizedPL.toFixed(2)}
+                        {item.realizedPL >= 0 ? "+" : ""}
+                        {formatINR(item.realizedPL).compact}
                       </Text>
                     </View>
                   ))}
@@ -343,6 +359,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -1,
   },
+  plExact: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
+    marginBottom: 4,
+  },
   profit: {
     color: colors.emerald,
   },
@@ -369,6 +391,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: colors.textPrimary,
+  },
+  plDetailExact: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 1,
   },
   statsGrid: {
     flexDirection: "row",
@@ -425,6 +452,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: colors.textPrimary,
+  },
+  volumeExact: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: 1,
   },
   symbolCard: {
     marginBottom: spacing.lg,

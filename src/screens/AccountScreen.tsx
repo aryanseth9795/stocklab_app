@@ -80,7 +80,7 @@ export default function AccountScreen() {
             <View style={styles.statCard}>
               <Ionicons name="wallet-outline" size={24} color={colors.indigo} />
               <Text style={styles.statValue}>
-                ${user?.balance?.toFixed(2) || "0.00"}
+                ₹{user?.balance?.toFixed(2) || "0.00"}
               </Text>
               <Text style={styles.statLabel}>Wallet Balance</Text>
             </View>
@@ -91,7 +91,7 @@ export default function AccountScreen() {
                 color={colors.emerald}
               />
               <Text style={styles.statValue}>
-                ${user?.totalInvested?.toFixed(2) || "0.00"}
+                ₹{user?.totalInvested?.toFixed(2) || "0.00"}
               </Text>
               <Text style={styles.statLabel}>Total Invested</Text>
             </View>
